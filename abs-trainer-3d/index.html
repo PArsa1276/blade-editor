@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>مربی سه‌بعدی شکم</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">🏋️ مربی سه‌بعدی شکم</div>
+      <div class="top-actions">
+        <button id="workoutBtn" class="btn primary">▶ شروع تمرین کامل</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="list-panel">
+        <h2>حرکت‌ها</h2>
+        <ol id="exerciseList" class="exercise-list"></ol>
+        <div class="settings">
+          <label>تعداد ست <input id="setsInput" type="number" min="1" max="6" value="3" /></label>
+          <label>استراحت (ثانیه) <input id="restInput" type="number" min="5" max="180" step="5" value="30" /></label>
+        </div>
+      </aside>
+
+      <section class="stage">
+        <div id="viewport" class="viewport">
+          <div class="overlay-top">
+            <div>
+              <div id="exTitle" class="ex-title"></div>
+              <div id="exDose" class="ex-dose"></div>
+            </div>
+            <div id="sideBadge" class="side-badge hidden"></div>
+          </div>
+          <div id="phaseLabel" class="phase-label"></div>
+          <div id="workoutHud" class="workout-hud hidden">
+            <div id="hudStatus" class="hud-status"></div>
+            <div id="hudBig" class="hud-big"></div>
+            <div id="hudSub" class="hud-sub"></div>
+            <div class="hud-actions">
+              <button id="hudPause" class="btn small">⏸ توقف</button>
+              <button id="hudSkip" class="btn small">⏭ ست بعد</button>
+              <button id="hudStop" class="btn small danger">✕ پایان</button>
+            </div>
+          </div>
+          <div class="cam-buttons">
+            <button data-cam="front" class="btn small">جلو</button>
+            <button data-cam="side" class="btn small">بغل</button>
+            <button data-cam="diag" class="btn small">۴۵°</button>
+            <button data-cam="top" class="btn small">بالا</button>
+            <button id="autoRotate" class="btn small toggle">↻ چرخش</button>
+          </div>
+          <div class="effort">
+            <span>فشار روی شکم</span>
+            <div class="effort-bar"><div id="effortFill"></div></div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="prevKey" class="btn icon" title="مرحله قبل">⏮</button>
+          <button id="playBtn" class="btn icon primary" title="پخش / توقف">⏸</button>
+          <button id="nextKey" class="btn icon" title="مرحله بعد">⏭</button>
+          <div class="timeline">
+            <input id="timeline" type="range" min="0" max="1000" value="0" />
+            <div id="ticks" class="ticks"></div>
+          </div>
+          <select id="speed" title="سرعت">
+            <option value="0.25">۰.۲۵×</option>
+            <option value="0.5">۰.۵×</option>
+            <option value="0.75">۰.۷۵×</option>
+            <option value="1" selected>۱×</option>
+            <option value="1.25">۱.۲۵×</option>
+          </select>
+        </div>
+        <div class="toggles">
+          <label><input type="checkbox" id="ghostToggle" /> نمایش حالت شروع و اوج (شبح)</label>
+          <label><input type="checkbox" id="muscleToggle" checked /> نمایش عضله فعال</label>
+          <label><input type="checkbox" id="jointToggle" checked /> نقطه مفصل‌ها</label>
+          <button id="switchSide" class="btn small hidden">⇄ عوض کردن طرف</button>
+        </div>
+      </section>
+
+      <aside class="info-panel">
+        <div id="exNote" class="note hidden"></div>
+        <h3>مراحل انجام</h3>
+        <ol id="steps"></ol>
+        <h3>نکته‌ها</h3>
+        <ul id="cues"></ul>
+        <h3>اشتباه‌های رایج</h3>
+        <ul id="mistakes" class="mistakes"></ul>
+        <h3>عضله‌های درگیر</h3>
+        <div id="muscles" class="chips"></div>
+
+        <h3>مقایسه با ویدیوی اصلی</h3>
+        <p class="hint">فایل ویدیو را انتخاب کن تا بخش مربوط به هر حرکت کنار مدل سه‌بعدی پخش شود. فایل فقط در مرورگر خودت باز می‌شود.</p>
+        <input id="videoFile" type="file" accept="video/*" />
+        <video id="refVideo" class="ref-video hidden" muted playsinline></video>
+      </aside>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
