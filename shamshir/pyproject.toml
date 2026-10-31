@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shamshir"
+version = "0.1.0"
+description = "Free, local video-editing MCP server: beat-synced edits, effects, Persian text, captions."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = ["mcp>=2,<3", "numpy>=1.24", "pillow>=10"]
+
+[project.optional-dependencies]
+captions = ["faster-whisper>=1.0"]
+test = ["pytest>=8"]
+
+[project.scripts]
+shamshir = "shamshir.server:main"
+
+[tool.setuptools]
+packages = ["shamshir"]
+
+[tool.setuptools.package-data]
+shamshir = ["fonts/*.ttf"]
