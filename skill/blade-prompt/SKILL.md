@@ -33,6 +33,12 @@ Never send a one-line prompt. Build every clip with `video_prompt` and send its 
 
 Model: the user's Flow model is **Omni 1.1 Flash** (`model="omni-1.1-flash"`, the default):
 - clips of 3-10 s (8 s is a good default); aspect 16:9 or 9:16 only;
+- Flow sets the aspect and the number of takes in its Agent settings ("Video generation default":
+  16:9 or 9:16, x1-x4), not in the prompt: use the same `aspect` as that setting (ask the user
+  if unknown; 9:16 for Reels/TikTok/Shorts) and recommend x1 (x2-x4 make more takes and spend
+  more credits; flow_collect downloads all of them);
+- with "Confirm before generating: Always", Flow asks before it spends credits: the USER clicks
+  that confirmation in Chrome, Blade never does;
 - write the prompt in **English** (translate the user's idea; spoken lines may stay in their language);
 - it cuts on its own unless told not to: choose `takes="single"` (one continuous camera move,
   "Single continuous shot. No scene cuts.") or `takes="cuts"` (each beat is a shot, "Cut to:") -
