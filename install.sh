@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shamshir installer for macOS and Linux. Run it from the shamshir folder: bash install.sh
+# Blade Editor installer for macOS and Linux. Run it from the blade-editor folder: bash install.sh
 set -e
 cd "$(dirname "$0")"
 say() { printf '\n==> %s\n' "$1"; }
@@ -21,22 +21,22 @@ if ! command -v ffmpeg >/dev/null; then
 fi
 echo "OK: ffmpeg found"
 
-say "Installing Shamshir into its own folder (~/.shamshir/venv)"
-"$PY" -m venv "$HOME/.shamshir/venv"
-"$HOME/.shamshir/venv/bin/python" -m pip install -q --upgrade pip
-"$HOME/.shamshir/venv/bin/python" -m pip install -q ".[captions]"
-SPY="$HOME/.shamshir/venv/bin/python"
-"$SPY" -c "import shamshir.server" && echo "OK: Shamshir installed"
+say "Installing Blade Editor into its own folder (~/.blade-editor/venv)"
+"$PY" -m venv "$HOME/.blade-editor/venv"
+"$HOME/.blade-editor/venv/bin/python" -m pip install -q --upgrade pip
+"$HOME/.blade-editor/venv/bin/python" -m pip install -q ".[captions]"
+SPY="$HOME/.blade-editor/venv/bin/python"
+"$SPY" -c "import blade_editor.server" && echo "OK: Blade Editor installed"
 
-say "Connecting Shamshir to Claude Code"
+say "Connecting Blade Editor to Claude Code"
 if command -v claude >/dev/null; then
-  claude mcp remove --scope user shamshir >/dev/null 2>&1 || true
-  claude mcp add --scope user shamshir -- "$SPY" -m shamshir.server
-  mkdir -p "$HOME/.claude/skills" && cp -R skill/shamshir-edit "$HOME/.claude/skills/"
+  claude mcp remove --scope user blade-editor >/dev/null 2>&1 || true
+  claude mcp add --scope user blade-editor -- "$SPY" -m blade_editor.server
+  mkdir -p "$HOME/.claude/skills" && cp -R skill/blade-edit "$HOME/.claude/skills/"
   echo "OK: connected"
 else
   echo "Claude Code is not installed yet. Install it (see the guide, step 2), then run this file again."
   exit 1
 fi
 
-say "Shamshir is ready. Close Claude Code if it is open, then start it again."
+say "Blade Editor is ready. Close Claude Code if it is open, then start it again."

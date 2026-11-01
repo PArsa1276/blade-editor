@@ -30,13 +30,13 @@ SCAN_JS = """() => [...document.querySelectorAll('video, img')].map(el => ({
 
 
 def setup_help(port: int = 9222) -> dict:
-    prof = str(Path.home() / ".shamshir" / "flow-chrome")
+    prof = str(Path.home() / ".blade-editor" / "flow-chrome")
     flags = f'--remote-debugging-port={port} --user-data-dir="{prof}"'
     return {
         "steps": [
             "1. Close nothing; start a SEPARATE Chrome with the command for your system (a new profile).",
             "2. In that window log in to your Google account and open Google Flow; open or create a project.",
-            "3. Keep that window open. Shamshir connects to it on 127.0.0.1 only.",
+            "3. Keep that window open. Blade Editor connects to it on 127.0.0.1 only.",
         ],
         "commands": {
             "windows": f'"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" {flags} {FLOW_URL}',
@@ -46,7 +46,7 @@ def setup_help(port: int = 9222) -> dict:
         "notes": [
             "Generation uses your own Flow credits and plan.",
             "Automating the Flow website may be against Google's terms; use it at your own risk.",
-            "Shamshir never solves CAPTCHAs and never approves credit dialogs for you.",
+            "Blade Editor never solves CAPTCHAs and never approves credit dialogs for you.",
         ],
     }
 
@@ -55,7 +55,7 @@ async def _connect(port: int):
     try:
         from playwright.async_api import async_playwright
     except ImportError as e:
-        raise RuntimeError("Install the Flow extra: pip install 'shamshir[flow]'") from e
+        raise RuntimeError("Install the Flow extra: pip install 'blade-editor[flow]'") from e
     pw = await async_playwright().start()
     try:
         browser = await pw.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")

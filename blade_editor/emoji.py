@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 _E = "[\u2600-\u27BF\u2B00-\u2BFF\U0001F000-\U0001FAFF]"
 _MOD = "[\uFE0F\U0001F3FB-\U0001F3FF]?"
 EMOJI_RE = re.compile(f"(?:[\U0001F1E6-\U0001F1FF]{{2}}|{_E}{_MOD}(?:\u200d{_E}{_MOD})*)")
-CACHE = Path(os.environ.get("SHAMSHIR_CACHE", Path.home() / ".cache" / "shamshir")) / "emoji"
+CACHE = Path(os.environ.get("BLADE_CACHE", Path.home() / ".cache" / "blade-editor")) / "emoji"
 _FONTS = [  # (path, size Pillow can draw it at)
     ("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf", 109),
     ("/usr/share/fonts/noto/NotoColorEmoji.ttf", 109),

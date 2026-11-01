@@ -1,11 +1,11 @@
 ---
-name: shamshir-edit
-description: Edit videos with the Shamshir MCP server (local, free ffmpeg editor) - beat-synced edits, remixing a reference edit's style onto the user's footage, speed ramps, effects, Persian/Arabic text, karaoke captions, jump cuts, logo/PiP overlays and platform-ready export. Use when the user gives video/music files and asks for an edit, reel, short, TikTok, montage, "edit like this reference", captions or silence removal.
+name: blade-edit
+description: Edit videos with the Blade Editor MCP server (local, free ffmpeg editor) - beat-synced edits, remixing a reference edit's style onto the user's footage, speed ramps, effects, Persian/Arabic text, karaoke captions, jump cuts, logo/PiP overlays and platform-ready export. Use when the user gives video/music files and asks for an edit, reel, short, TikTok, montage, "edit like this reference", captions or silence removal.
 ---
 
-# Shamshir video editing
+# Blade Editor video editing
 
-Tools come from the `shamshir` MCP server. Call `start_here` first; on first use, ask the user
+Tools come from the `blade-editor` MCP server. Call `start_here` first; on first use, ask the user
 (in their language) if they want the guide, and if yes give the `guide` text translated into
 their language. Call `capabilities` once per chat for the exact
 EDL format and names; do not guess effect, grade or style names.
@@ -43,7 +43,7 @@ EDL format and names; do not guess effect, grade or style names.
   -> use the returned file as a clip `src`. Never approve credit dialogs for the user.
 
 - **After-Effects-style graphics (Kinetograph, optional):** write a TSX composition with the
-  `kinetograph` skill, `background={process.env.SHAMSHIR_BG ?? "transparent"}`, check it with
+  `kinetograph` skill, `background={process.env.BLADE_BG ?? "transparent"}`, check it with
   `kinetograph strip`, then `motion_graphic(entry, out.mov)` and put the result in `overlays`
   (`width: 1.0` for full frame). Persian/Arabic text: `<div dir="rtl">`, never `<Text>`.
 
@@ -57,6 +57,6 @@ EDL format and names; do not guess effect, grade or style names.
 - `stabilize: true` on a shaky clip (crops about 8% at the edges).
 - Emoji in `texts` become colour stickers above the text; use `overlays` with `src: "emoji:🔥"`
   to place one anywhere.
-- Without Google Flow, Shamshir does not generate new footage. After-Effects motion graphics
+- Without Google Flow, Blade Editor does not generate new footage. After-Effects motion graphics
   (masks, tracked 3D text, particles) cannot be copied; get close with zoom/shake/flash/
   ramps/overlays/text animations and say what differs.

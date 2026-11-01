@@ -1,4 +1,4 @@
-"""Shamshir MCP server: free, local video editing for AI agents."""
+"""Blade Editor MCP server: free, local video editing for AI agents."""
 
 from __future__ import annotations
 
@@ -15,12 +15,12 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from . import __version__, analyze, audio, autoedit, captions, effects, ff, flow, motion, qa, render, sfx, text
 
-HOME = Path(os.environ.get("SHAMSHIR_HOME", Path.home() / "shamshir_projects")).expanduser()
+HOME = Path(os.environ.get("BLADE_HOME", Path.home() / "blade_projects")).expanduser()
 
 INSTRUCTIONS = """\
-Shamshir edits video locally with ffmpeg. It is free and has no credit limits.
+Blade Editor edits video locally with ffmpeg. It is free and has no credit limits.
 
-FIRST: call `start_here` once per conversation before other Shamshir tools. If it says
+FIRST: call `start_here` once per conversation before other Blade Editor tools. If it says
 first_use=true, ask the user, in the language they write in, whether they want the user guide.
 If they say yes, call `guide` and give them the whole guide translated into their language
 (keep commands, file names and tool names unchanged).
@@ -38,7 +38,7 @@ All times are seconds. Clip effect times are relative to the clip start; texts, 
 global_effects use output time. Text supports Persian/Arabic (Vazirmatn font is bundled).
 """
 
-mcp = MCPServer("shamshir", instructions=INSTRUCTIONS, version=__version__)
+mcp = MCPServer("blade-editor", instructions=INSTRUCTIONS, version=__version__)
 _tool = mcp.tool
 
 
@@ -97,21 +97,21 @@ FIRST_USE_MARK = HOME / ".welcomed"
 
 @mcp.tool()
 def start_here() -> dict:
-    """Call once per conversation before other Shamshir tools. Says if this is the user's first
-    use of Shamshir; then ask the user (in their language) if they want the guide."""
+    """Call once per conversation before other Blade Editor tools. Says if this is the user's first
+    use of Blade Editor; then ask the user (in their language) if they want the guide."""
     first = not FIRST_USE_MARK.exists()
     if first:
         HOME.mkdir(parents=True, exist_ok=True)
         FIRST_USE_MARK.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
     return {"first_use": first, "version": __version__,
-            "next": ("Ask the user, in their own language, if they want the Shamshir user guide. "
+            "next": ("Ask the user, in their own language, if they want the Blade Editor user guide. "
                      "If yes, call `guide`." if first else
                      "Continue with the user's request. The guide is available with `guide`.")}
 
 
 @mcp.tool()
 def guide() -> dict:
-    """The Shamshir user guide (in English). Translate the whole guide into the language the
+    """The Blade Editor user guide (in English). Translate the whole guide into the language the
     user writes in before you give it to them; keep commands, file names and tool names as they are."""
     return {"guide_markdown": GUIDE.read_text(encoding="utf-8"),
             "instruction": "Translate everything into the user's language; do not shorten it."}
@@ -326,7 +326,7 @@ def motion_graphic(entry: str, output_path: str, comp: str | None = None, props:
     """Render a Kinetograph (Remotion-style TSX) motion graphic - title, lower third, kinetic text,
     shapes, Lottie - to a TRANSPARENT ProRes 4444 clip for `overlays` (width 1.0 = full frame).
     Needs Node.js and `npm i -D kinetograph` next to the entry, and the composition must use
-    background={process.env.SHAMSHIR_BG ?? "transparent"}. Write Persian/Arabic text in a
+    background={process.env.BLADE_BG ?? "transparent"}. Write Persian/Arabic text in a
     <div dir="rtl"> (HTML path), not <Text> (no right-to-left support there)."""
     return motion.render(_abs(entry), str(Path(output_path).expanduser().resolve()), comp, props, draft)
 
@@ -355,7 +355,7 @@ async def flow_generate_video(prompt: str, confirm: bool = False, port: int = 92
     """Generate a video clip with Google Flow (Veo) in your logged-in Chrome.
     confirm=false (default) only types the prompt and returns a screenshot; no credits are spent.
     Ask the user, then call with confirm=true to submit; the new video is downloaded to the
-    project folder and can be used as a clip `src` in an EDL. Shamshir never approves credit
+    project folder and can be used as a clip `src` in an EDL. Blade Editor never approves credit
     dialogs; if Flow shows one, the user approves it in the browser."""
     out = _project(project) / "flow"
     return _with_shot(await flow.generate_video(prompt, out, confirm, port, direct, timeout))

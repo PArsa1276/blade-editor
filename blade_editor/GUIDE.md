@@ -1,4 +1,4 @@
-# Shamshir: step-by-step guide for beginners
+# Blade Editor: step-by-step guide for beginners
 
 Read this guide from top to bottom and do each step in order. You do not need to know anything
 about computers or video editing. After each step, the guide tells you what you will see. If
@@ -6,9 +6,9 @@ you see something different, go to "Problems and solutions" at the end.
 
 ---
 
-## What is Shamshir?
+## What is Blade Editor?
 
-Shamshir is a free video editor. You do not edit by hand. You write what you want, for example
+Blade Editor is a free video editor. You do not edit by hand. You write what you want, for example
 "make a 15-second edit of my clips on this song", and an AI assistant (Claude) makes the video
 for you on your own computer.
 
@@ -63,34 +63,35 @@ page opens, you log in with your Claude account, and you come back to the termin
 
 You will see: a box with "Welcome to Claude Code". Type `/exit` and press `Enter` to close it.
 
-### Step 3: Download Shamshir
+### Step 3: Download Blade Editor
 
 1. Open this link in your browser:
-   https://github.com/PArsa1276/Hello_World/archive/refs/heads/ccr-9e17ec24-dcivc1.zip
-   A ZIP file downloads.
+   https://github.com/PArsa1276/blade-editor/archive/refs/heads/main.zip
+   A ZIP file named `blade-editor-main.zip` downloads.
 2. Open your **Downloads** folder. Right-click the ZIP file and click **Extract All**
    (Mac: double-click the ZIP file).
-3. Inside the extracted folder you find a folder named `shamshir`. Move it to your
-   **Documents** folder.
+3. Open the extracted folders until you see the files `install.ps1` and `install.sh`. Go one
+   level back: the folder that holds these files is named `blade-editor-main`. Rename it to
+   `blade-editor` (right-click, **Rename**) and move it to your **Documents** folder.
 
-You will see: the folder `Documents/shamshir` with files like `install.ps1`, `install.sh` and
+You will see: the folder `Documents/blade-editor` with files like `install.ps1`, `install.sh` and
 `README.md` in it.
 
-### Step 4: Run the Shamshir installer
+### Step 4: Run the Blade Editor installer
 
-The installer installs everything Shamshir needs (Python, ffmpeg, Shamshir itself) and connects
+The installer installs everything Blade Editor needs (Python, ffmpeg, Blade Editor itself) and connects
 it to Claude Code.
 
 - **Windows**: open PowerShell (step 1) and run these two commands, one after the other:
   ```
-  cd $HOME\Documents\shamshir
+  cd $HOME\Documents\blade-editor
   ```
   ```
   powershell -ExecutionPolicy Bypass -File install.ps1
   ```
 - **Mac / Linux**: open Terminal (step 1) and run these two commands, one after the other:
   ```
-  cd ~/Documents/shamshir
+  cd ~/Documents/blade-editor
   ```
   ```
   bash install.sh
@@ -99,12 +100,12 @@ it to Claude Code.
 The installer can take 5 to 15 minutes. It can ask for your computer password (Mac/Linux) or
 show a "Do you allow this app to make changes?" window (Windows). Accept.
 
-You will see at the end: **Shamshir is ready.**
+You will see at the end: **Blade Editor is ready.**
 
 If the installer says "Close this window, open a new PowerShell and run this file again",
 do that: close PowerShell, open it again and repeat this step.
 
-### Step 5: Check that Shamshir works
+### Step 5: Check that Blade Editor works
 
 In the terminal, type `claude` and press `Enter`. Then type:
 ```
@@ -112,7 +113,7 @@ In the terminal, type `claude` and press `Enter`. Then type:
 ```
 and press `Enter`.
 
-You will see: a list with **shamshir** and the word **connected**. Press `Esc`.
+You will see: a list with **blade-editor** and the word **connected**. Press `Esc`.
 
 Installation is complete. You never need to do Part 1 again.
 
@@ -160,8 +161,8 @@ You can write in any language.
 ### Step 9: Allow the actions
 
 Claude asks for permission before it uses a tool, for example:
-"Do you want to allow shamshir - auto_edit?"
-Choose **Yes** (or **Yes, and don't ask again** for Shamshir tools).
+"Do you want to allow blade-editor - auto_edit?"
+Choose **Yes** (or **Yes, and don't ask again** for Blade Editor tools).
 
 ### Step 10: Watch the result
 
@@ -218,8 +219,8 @@ shake), **cinematic** (slow, film look, black bars), **smooth** (calm, warm), **
 This makes new clips with Google's AI (Veo) and your own Google account. It uses your Flow
 credits.
 
-1. In the Shamshir folder terminal run: `~/.shamshir/venv/bin/python -m pip install playwright`
-   (Windows: `$HOME\.shamshir\venv\Scripts\python.exe -m pip install playwright`).
+1. In the Blade Editor folder terminal run: `~/.blade-editor/venv/bin/python -m pip install playwright`
+   (Windows: `$HOME\.blade-editor\venv\Scripts\python.exe -m pip install playwright`).
 2. In Claude Code, write: `Run flow_setup`. Claude gives you one command. Run it in a new
    terminal: a separate Chrome window opens.
 3. In that Chrome window, log in to Google and open a project at https://labs.google/fx/tools/flow
@@ -245,7 +246,7 @@ A graphics card makes this fast; without one it works but is slower.
 | `claude` is not recognized / command not found | Close the terminal, open it again, and try again. If it still fails, repeat step 2. |
 | The installer says Python or ffmpeg is missing | Close the terminal, open a new one, and run step 4 again. |
 | Windows says "running scripts is disabled" | Use exactly the command in step 4 (`powershell -ExecutionPolicy Bypass -File install.ps1`). |
-| `/mcp` does not show shamshir | Run step 4 again, then close and open Claude Code. |
+| `/mcp` does not show blade-editor | Run step 4 again, then close and open Claude Code. |
 | "File not found" | The file must be in the folder where you started `claude` (step 7). Check the file name. |
 | The video is very slow to make | Ask for "a preview first" and a shorter length. Long 4K clips are slow. |
 | Persian/Arabic letters look wrong | Tell Claude: "The text looks wrong, please check it with view_frames". |
@@ -253,8 +254,8 @@ A graphics card makes this fast; without one it works but is slower.
 
 ## Limits
 
-- Shamshir edits your own clips. It makes new scenes only with Google Flow (optional).
+- Blade Editor edits your own clips. It makes new scenes only with Google Flow (optional).
 - Very complex After Effects work (masks, 3D tracked text, particles) is not copied exactly.
-  Shamshir gets close with rhythm, flashes, shake, zooms, colour, speed and text.
-- Do not delete or move the `Documents/shamshir` folder until the installation is done. After
-  the installation you can delete it; Shamshir stays installed in `~/.shamshir`.
+  Blade Editor gets close with rhythm, flashes, shake, zooms, colour, speed and text.
+- Do not delete or move the `Documents/blade-editor` folder until the installation is done. After
+  the installation you can delete it; Blade Editor stays installed in `~/.blade-editor`.

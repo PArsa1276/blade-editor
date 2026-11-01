@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("playwright")
-CHROME = os.environ.get("SHAMSHIR_TEST_CHROME") or next(
+CHROME = os.environ.get("BLADE_TEST_CHROME") or next(
     iter(glob.glob("/opt/pw-browsers/chromium-*/chrome-linux*/chrome")), None)
 pytestmark = pytest.mark.skipif(not CHROME, reason="no Chromium binary")
 
@@ -25,7 +25,7 @@ def _port():
 
 
 def test_flow_downloads_only_the_new_video(tmp_path):
-    from shamshir import flow
+    from blade_editor import flow
 
     for name, pat in (("old.mp4", "testsrc"), ("new.mp4", "smptebars")):
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"{pat}=d=1",

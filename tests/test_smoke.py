@@ -5,7 +5,7 @@ import subprocess
 import numpy as np
 import pytest
 
-from shamshir import analyze, audio, autoedit, ff, qa, render
+from blade_editor import analyze, audio, autoedit, ff, qa, render
 
 
 def _ff(*args):
@@ -112,10 +112,10 @@ def test_stabilize_and_emoji(media, tmp_path):
     assert jitter(out) < 0.4 * jitter(shaky)
 
 
-@pytest.mark.skipif(not __import__("os").environ.get("SHAMSHIR_TEST_KG_ENTRY"),
-                    reason="set SHAMSHIR_TEST_KG_ENTRY to a Kinetograph entry to run")
+@pytest.mark.skipif(not __import__("os").environ.get("BLADE_TEST_KG_ENTRY"),
+                    reason="set BLADE_TEST_KG_ENTRY to a Kinetograph entry to run")
 def test_motion_graphic_alpha(tmp_path):
     import os
-    from shamshir import motion
-    r = motion.render(os.environ["SHAMSHIR_TEST_KG_ENTRY"], tmp_path / "mg.mov", draft=True)
+    from blade_editor import motion
+    r = motion.render(os.environ["BLADE_TEST_KG_ENTRY"], tmp_path / "mg.mov", draft=True)
     assert r["pix_fmt"].startswith("yuva")

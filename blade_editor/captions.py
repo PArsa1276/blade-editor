@@ -13,7 +13,7 @@ def available() -> bool:
 
 def transcribe(path: str, language: str | None = None, model: str = "small") -> dict:
     if not available():
-        raise RuntimeError("faster-whisper is not installed. Run: pip install 'shamshir[captions]'")
+        raise RuntimeError("faster-whisper is not installed. Run: pip install 'blade-editor[captions]'")
     from faster_whisper import WhisperModel
 
     from . import ff
