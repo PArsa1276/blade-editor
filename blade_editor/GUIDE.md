@@ -39,29 +39,19 @@ How to copy and paste a command: select the command in this guide, press `Ctrl+C
 
 You will see: a window with text and a blinking cursor.
 
-### Step 2: Install Claude Code
+### Step 2: Get Claude
 
-Copy this command into the terminal and press `Enter`.
+You can use Claude in one of two ways. Choose **A** if you are not sure.
 
-- **Windows**:
-  ```
-  irm https://claude.ai/install.ps1 | iex
-  ```
-- **Mac / Linux**:
-  ```
-  curl -fsSL https://claude.ai/install.sh | bash
-  ```
+**A. The Claude app (easiest).** Download it from https://claude.ai/download, install it,
+open it and log in with your Claude account. You do not need to install anything else for
+Claude. (Blade Editor works in the app's **Code** tab and also in normal chats.)
 
-Wait until it stops. Then **close the terminal and open it again** (step 1).
+**B. Claude Code in the terminal.** Copy this command into the terminal and press `Enter`:
+- **Windows**: `irm https://claude.ai/install.ps1 | iex`
+- **Mac / Linux**: `curl -fsSL https://claude.ai/install.sh | bash`
 
-Now type this command and press `Enter`:
-```
-claude
-```
-The first time, Claude Code asks you to log in. Follow the text on the screen: a browser
-page opens, you log in with your Claude account, and you come back to the terminal.
-
-You will see: a box with "Welcome to Claude Code". Type `/exit` and press `Enter` to close it.
+Then close the terminal, open it again, type `claude`, press `Enter` and log in.
 
 ### Step 3: Download Blade Editor
 
@@ -80,7 +70,9 @@ You will see: the folder `Documents/blade-editor` with files like `install.ps1`,
 ### Step 4: Run the Blade Editor installer
 
 The installer installs everything Blade Editor needs (Python, ffmpeg, Blade Editor itself) and connects
-it to Claude Code.
+it to the Claude app and to Claude Code. **Before you start, quit the Claude app completely**
+(Windows: right-click the Claude icon near the clock and click **Quit**; Mac: `Cmd+Q`).
+You still use the terminal for this one step only.
 
 - **Windows**: open PowerShell (step 1) and run these two commands, one after the other:
   ```
@@ -107,13 +99,14 @@ do that: close PowerShell, open it again and repeat this step.
 
 ### Step 5: Check that Blade Editor works
 
-In the terminal, type `claude` and press `Enter`. Then type:
+Open the Claude app again (or type `claude` in the terminal if you chose B in step 2).
+Start a new chat or a new **Code** session and write:
 ```
-/mcp
+Do you have the blade-editor tools? Call start_here.
 ```
-and press `Enter`.
 
-You will see: a list with **blade-editor** and the word **connected**. Press `Esc`.
+You will see: Claude says it has the Blade Editor tools and asks if you want this guide.
+(Terminal users can also type `/mcp`: the list shows **blade-editor** and **connected**.)
 
 Installation is complete. You never need to do Part 1 again.
 
@@ -132,13 +125,14 @@ Installation is complete. You never need to do Part 1 again.
 
 Tip: short, sharp clips with a lot of movement give the best result.
 
-### Step 7: Open Claude Code in that folder
+### Step 7: Open Claude in that folder
 
-- **Windows**: open the `my-edit` folder. Click on the address bar at the top of the window
-  (where the folder path is), type `powershell` and press `Enter`. A PowerShell window opens
-  in this folder. Type `claude` and press `Enter`.
-- **Mac**: open Terminal, type `cd ` (with a space after it), drag the `my-edit` folder from
-  Finder into the Terminal window, and press `Enter`. Then type `claude` and press `Enter`.
+- **Claude app**: click **Code** (on the left or at the top), start a new session, and choose
+  the `my-edit` folder as the working folder (click the folder name or **Select folder**).
+- **Terminal, Windows**: open the `my-edit` folder. Click on the address bar at the top of the
+  window, type `powershell` and press `Enter`. Then type `claude` and press `Enter`.
+- **Terminal, Mac**: open Terminal, type `cd ` (with a space after it), drag the `my-edit`
+  folder from Finder into the Terminal window, and press `Enter`. Then type `claude` and press `Enter`.
 
 ### Step 8: Say what you want
 
@@ -243,11 +237,12 @@ A graphics card makes this fast; without one it works but is slower.
 
 | You see | Do this |
 |---|---|
-| `claude` is not recognized / command not found | Close the terminal, open it again, and try again. If it still fails, repeat step 2. |
+| `claude` is not recognized / command not found | You do not need this command if you use the Claude app. For the terminal: close it, open it again, and try again; if it still fails, repeat step 2 B. |
+| Claude says it has no blade-editor tools | Quit the Claude app completely (not only the window) and open it again. If it still fails, run step 4 again with the app closed. |
 | The installer says Python or ffmpeg is missing | Close the terminal, open a new one, and run step 4 again. |
 | Windows says "running scripts is disabled" | Use exactly the command in step 4 (`powershell -ExecutionPolicy Bypass -File install.ps1`). |
 | `/mcp` does not show blade-editor | Run step 4 again, then close and open Claude Code. |
-| "File not found" | The file must be in the folder where you started `claude` (step 7). Check the file name. |
+| "File not found" | The file must be in the folder you chose in step 7. Check the file name. |
 | The video is very slow to make | Ask for "a preview first" and a shorter length. Long 4K clips are slow. |
 | Persian/Arabic letters look wrong | Tell Claude: "The text looks wrong, please check it with view_frames". |
 | Anything else | Copy the error text and paste it to Claude: "I see this error, please fix it." |

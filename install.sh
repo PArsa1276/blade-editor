@@ -28,15 +28,9 @@ say "Installing Blade Editor into its own folder (~/.blade-editor/venv)"
 SPY="$HOME/.blade-editor/venv/bin/python"
 "$SPY" -c "import blade_editor.server" && echo "OK: Blade Editor installed"
 
-say "Connecting Blade Editor to Claude Code"
-if command -v claude >/dev/null; then
-  claude mcp remove --scope user blade-editor >/dev/null 2>&1 || true
-  claude mcp add --scope user blade-editor -- "$SPY" -m blade_editor.server
-  mkdir -p "$HOME/.claude/skills" && cp -R skill/blade-edit "$HOME/.claude/skills/"
-  echo "OK: connected"
-else
-  echo "Claude Code is not installed yet. Install it (see the guide, step 2), then run this file again."
-  exit 1
-fi
+say "Connecting Blade Editor to Claude (app and Claude Code)"
+"$SPY" -m blade_editor.server --register
+mkdir -p "$HOME/.claude/skills" && cp -R skill/blade-edit "$HOME/.claude/skills/"
+echo "OK: connected"
 
-say "Blade Editor is ready. Close Claude Code if it is open, then start it again."
+say "Blade Editor is ready. Quit the Claude app (and Claude Code) completely, then open it again."

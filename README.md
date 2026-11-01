@@ -22,14 +22,17 @@ you only say what you want, in any language.
 
 ## Quick start
 
-1. Install [Claude Code](https://claude.com/claude-code).
+1. Install the [Claude app](https://claude.ai/download) or [Claude Code](https://claude.com/claude-code).
 2. Download this repository ([ZIP](https://github.com/PArsa1276/blade-editor/archive/refs/heads/main.zip)) and run the installer in its folder:
    - Windows: `powershell -ExecutionPolicy Bypass -File install.ps1`
    - macOS / Linux: `bash install.sh`
 3. Open a terminal in a folder with your clips and music, run `claude`, and ask for an edit.
 
 The installer installs Python and ffmpeg when they are missing, puts Blade Editor in its own
-environment (`~/.blade-editor/venv`), connects it to Claude Code and installs the editing skill.
+environment (`~/.blade-editor/venv`), writes it into the Claude settings (`~/.claude.json` for
+Claude Code and the desktop app's Code tab, `claude_desktop_config.json` for Claude Desktop
+chats) and installs the editing skill. The `claude` command is not needed. Quit the Claude app
+before you run it and open it again after.
 Complete beginners: follow the [step-by-step guide](blade_editor/GUIDE.md) (English) or
 [GUIDE_FA.md](GUIDE_FA.md) (Persian).
 
@@ -103,7 +106,7 @@ Inside an edit list:
 Manual install:
 ```bash
 pip install ".[captions]"
-claude mcp add --scope user blade-editor -- blade-editor
+python -m blade_editor.server --register   # writes the Claude settings files
 cp -r skill/blade-edit ~/.claude/skills/
 ```
 Claude Desktop (`claude_desktop_config.json`): `{ "mcpServers": { "blade-editor": { "command": "blade-editor" } } }`

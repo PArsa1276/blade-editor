@@ -6,6 +6,7 @@ import functools
 import inspect
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -367,11 +368,45 @@ async def flow_collect(port: int = 9222, limit: int = 4, project: str | None = N
     return await flow.collect(_project(project) / "flow", port, limit)
 
 
-def main() -> None:
-    import sys
+def _config_files() -> list[Path]:
+    """MCP config files: Claude Code (CLI and the desktop app's Code tab) and Claude Desktop."""
+    files = [Path.home() / ".claude.json"]
+    if os.name == "nt":
+        desktop = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Claude"
+    elif sys.platform == "darwin":
+        desktop = Path.home() / "Library" / "Application Support" / "Claude"
+    else:
+        desktop = Path.home() / ".config" / "Claude"
+    if desktop.is_dir():  # only when the Claude desktop app is installed
+        files.append(desktop / "claude_desktop_config.json")
+    return files
 
+
+def register() -> list[str]:
+    """Add this Python as the `blade-editor` MCP server, without the `claude` command."""
+    entry = {"type": "stdio", "command": sys.executable, "args": ["-m", "blade_editor.server"], "env": {}}
+    done = []
+    for f in _config_files():
+        data = {}
+        if f.exists():
+            text = f.read_text(encoding="utf-8")
+            data = json.loads(text) if text.strip() else {}
+            f.with_name(f.name + ".blade-backup").write_text(text, encoding="utf-8")
+        data.setdefault("mcpServers", {})["blade-editor"] = entry
+        tmp = f.with_name(f.name + ".tmp")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(f)  # atomic, so a crash never leaves a half-written config
+        done.append(str(f))
+    return done
+
+
+def main() -> None:
     if "--version" in sys.argv:
         print(__version__)
+        return
+    if "--register" in sys.argv:
+        for f in register():
+            print(f"OK: {f}")
         return
     mcp.run("stdio")
 

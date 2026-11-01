@@ -32,10 +32,9 @@ $spy = "$HOME\.blade-editor\venv\Scripts\python.exe"
 if ($LASTEXITCODE -ne 0) { Write-Host "Blade Editor could not be installed. Send the text above to your assistant."; exit 1 }
 Write-Host "OK: Blade Editor installed"
 
-Say "Connecting Blade Editor to Claude Code"
-if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { Write-Host "Claude Code is not installed yet. Install it (see the guide, step 2), then run this file again."; exit 1 }
-claude mcp remove --scope user blade-editor 2>$null | Out-Null
-claude mcp add --scope user blade-editor -- "$spy" -m blade_editor.server
+Say "Connecting Blade Editor to Claude (app and Claude Code)"
+& $spy -m blade_editor.server --register
+if ($LASTEXITCODE -ne 0) { Write-Host "Could not write the Claude settings. Quit the Claude app and run this file again."; exit 1 }
 New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null
 Copy-Item -Recurse -Force "skill\blade-edit" "$HOME\.claude\skills\"
-Say "Blade Editor is ready. Close Claude Code if it is open, then start it again."
+Say "Blade Editor is ready. Quit the Claude app (and Claude Code) completely, then open it again."

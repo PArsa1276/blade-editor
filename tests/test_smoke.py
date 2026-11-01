@@ -119,3 +119,21 @@ def test_motion_graphic_alpha(tmp_path):
     from blade_editor import motion
     r = motion.render(os.environ["BLADE_TEST_KG_ENTRY"], tmp_path / "mg.mov", draft=True)
     assert r["pix_fmt"].startswith("yuva")
+
+
+def test_register_writes_both_configs_and_keeps_old_keys(tmp_path, monkeypatch):
+    import json
+    from blade_editor import server
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "AppData"))
+    (tmp_path / ".claude.json").write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}, "theme": "dark"}))
+    for d in (tmp_path / ".config" / "Claude", tmp_path / "Library" / "Application Support" / "Claude",
+              tmp_path / "AppData" / "Claude"):
+        d.mkdir(parents=True)
+    written = server.register()
+    assert len(written) == 2
+    cli = json.loads((tmp_path / ".claude.json").read_text())
+    assert cli["theme"] == "dark" and "other" in cli["mcpServers"]
+    assert cli["mcpServers"]["blade-editor"]["args"] == ["-m", "blade_editor.server"]
+    desk = json.loads(open(written[1]).read())
+    assert "blade-editor" in desk["mcpServers"]
