@@ -98,10 +98,11 @@ Inside an edit list:
   one finished edit - no half versions.
 - **No loops:** repeated analysis of the same file is refused by the server, so a doubt costs
   one check, not your whole token budget.
-- Three bundled skills, installed together:
+- Four bundled skills, installed together:
   - `blade-edit` - which tool for what, and how to combine them;
   - `blade-spec` - spec-driven workflow (adapted from spec-kit): spec -> plan -> build -> verify;
-  - `blade-ponytail` - lean mode: fewest calls, renders and tokens, hard limits.
+  - `blade-ponytail` - lean mode: fewest calls, renders and tokens, hard limits;
+  - `blade-prompt` - prompt optimizer: short request -> full edit brief, and second-by-second Google Flow (Veo) prompts (`video_prompt` tool).
 
 ## Example requests
 

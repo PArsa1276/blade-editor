@@ -14,7 +14,7 @@ from typing import Any
 from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, qa, recipes, render, sfx, text
+from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, prompts, qa, recipes, render, sfx, text
 
 HOME = Path(os.environ.get("BLADE_HOME", Path.home() / "blade_projects")).expanduser()
 
@@ -31,7 +31,8 @@ recipe (structure, rhythm, the "wow" trick) - adapted to the footage and the use
 DECIDE BEFORE THE FIRST RENDER: run `reference_breakdown` (when there is a reference) and
 `view_frames` on the reference and sources. Map each part to a tool: camera moves -> `camera`
 effect with the breakdown's keys (or `camera_preset`); 3D turns, designed titles/graphics ->
-`motion_graphic` (Kinetograph); missing shots -> Google Flow (ask before spending credits);
+`motion_graphic` (Kinetograph); missing shots -> Google Flow (write the prompt with `video_prompt`, second by second; ask before
+spending credits);
 beats -> clip in/out on beats or `auto_edit`. Tell the user briefly what will match exactly,
 approximately, or not at all - then make ONE complete, standard edit (no half versions).
 
@@ -573,6 +574,26 @@ def flow_setup(port: int = 0) -> dict:
 async def flow_status(port: int = 0) -> list:
     """Check the connection to the Flow tab in your Chrome and show a screenshot of it."""
     return _with_shot(await flow.status(port))
+
+
+@mcp.tool()
+def video_prompt(beats: list[dict], style: str, duration: float = 8.0, aspect: str = "16:9",
+                 subject: str = "", setting: str = "", audio: str = "", negative: str = "",
+                 continuity: str = "", model: str = "omni-1.1-flash", takes: str = "single") -> dict:
+    """Build a detailed, timed (second-by-second) Google Flow prompt from a shot list and
+    check it. ALWAYS use this before flow_generate_video - short prompts give weak clips.
+    beats: [{t0, t1, camera (angle + movement + lens, e.g. "low-angle 24mm, slow dolly in"),
+    subject?, action (what moves, how fast, the physics), setting?, lighting (source, direction,
+    colour), audio?, dialogue?: ["the woman", "line"]}] covering 0..duration, about one change per
+    1.5-2 s. model: omni-1.1-flash (default: 3-10 s, 16:9/9:16, English) or veo. takes: "single"
+    (one continuous shot, camera moves between beats) or "cuts" (each beat is its own shot).
+    dialogue may add the voice: ["the man", "line", "in a calm deep voice"]. style: film look/genre (e.g. "Cinematic 35mm film, teal-orange grade, shallow depth of
+    field"). subject/setting/continuity: what stays the same in every beat (face, clothes, props).
+    audio: music, ambience and effects. negative: things to leave out as plain words ("text,
+    watermark, extra fingers, blurry face"). Fix every item in `issues`, then pass `prompt` to
+    flow_generate_video with direct=false."""
+    return prompts.build(beats, style, duration, aspect, subject, setting, audio, negative, continuity,
+                         model, takes)
 
 
 @mcp.tool()

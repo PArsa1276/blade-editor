@@ -264,3 +264,26 @@ def test_edit_ideas_and_user_recipes(tmp_path, monkeypatch):
     recipes.save("My Car Edit", {"tags": "car night drift", "style": {"cut_every": 1}})
     top = recipes.ideas("night car drift edit")[0]
     assert top["name"] == "my_car_edit" and top["source"] == "user"
+
+
+def test_video_prompt_is_timed_and_checked():
+    from blade_editor import prompts
+    beats = [{"t0": 0, "t1": 3, "camera": "wide 24mm, slow dolly in", "action": "a red car drifts around a corner, tyre smoke",
+              "lighting": "low sun from the left, long shadows"},
+             {"t0": 3, "t1": 6, "camera": "low-angle 35mm, tracking left", "action": "the car straightens and speeds past"},
+             {"t0": 6, "t1": 8, "camera": "static close-up 85mm", "action": "smoke clears around the rear light",
+              "dialogue": ["the driver", "Again."]}]
+    r = prompts.build(beats, "Cinematic 35mm film, warm grade", subject="a red 1990s sports car",
+                      setting="empty mountain road at sunset", audio="engine roar, tyre screech, deep bass music",
+                      negative="text, watermark, people")
+    assert r["ok"], r["issues"]
+    p = r["prompt"]
+    assert p.startswith("Single continuous shot. No scene cuts.") and "[0-3s] Wide 24mm" in p
+    assert 'the driver says: "Again."' in p and "No text. No watermark. No people." in p
+    cuts = prompts.build(beats, "x", takes="cuts", audio="a")["prompt"]
+    assert "[3-6s] Cut to:" in cuts and "No scene cuts" not in cuts
+    assert any("3-10 s" in i for i in prompts.build(beats, "x", duration=12, audio="a")["issues"])
+    veo = prompts.build(beats, "x", model="veo", audio="a", negative="text")["prompt"]
+    assert "[00.00-03.00s] Camera: wide 24mm" in veo and "Negative prompt: text." in veo
+    bad = prompts.build(beats[:1], "x", model="veo", negative="no text")
+    assert any("last beat" in i for i in bad["issues"]) and any("'no'" in i for i in bad["issues"])
