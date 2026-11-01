@@ -13,7 +13,7 @@ from typing import Any
 from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import __version__, analyze, audio, autoedit, captions, effects, ff, flow, qa, render, sfx, text
+from . import __version__, analyze, audio, autoedit, captions, effects, ff, flow, motion, qa, render, sfx, text
 
 HOME = Path(os.environ.get("SHAMSHIR_HOME", Path.home() / "shamshir_projects")).expanduser()
 
@@ -287,6 +287,17 @@ def make_caption_texts(segments: list[dict], style: str = "subtitle", pos: str =
 def make_sfx(kind: str, duration: float | None = None, project: str | None = None) -> dict:
     """Make a sound effect file (whoosh, hit, riser, click, glitch, boom, swish)."""
     return {"path": str(sfx.make(kind, _project(project), duration))}
+
+
+@mcp.tool()
+def motion_graphic(entry: str, output_path: str, comp: str | None = None, props: dict | None = None,
+                   draft: bool = False) -> dict:
+    """Render a Kinetograph (Remotion-style TSX) motion graphic - title, lower third, kinetic text,
+    shapes, Lottie - to a TRANSPARENT ProRes 4444 clip for `overlays` (width 1.0 = full frame).
+    Needs Node.js and `npm i -D kinetograph` next to the entry, and the composition must use
+    background={process.env.SHAMSHIR_BG ?? "transparent"}. Write Persian/Arabic text in a
+    <div dir="rtl"> (HTML path), not <Text> (no right-to-left support there)."""
+    return motion.render(_abs(entry), str(Path(output_path).expanduser().resolve()), comp, props, draft)
 
 
 def _with_shot(r: dict) -> list:

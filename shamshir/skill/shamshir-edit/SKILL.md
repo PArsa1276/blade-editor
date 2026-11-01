@@ -40,6 +40,11 @@ EDL format and names; do not guess effect, grade or style names.
   credits; show the screenshot and ASK the user) -> `flow_generate_video(prompt, confirm=true)`
   -> use the returned file as a clip `src`. Never approve credit dialogs for the user.
 
+- **After-Effects-style graphics (Kinetograph, optional):** write a TSX composition with the
+  `kinetograph` skill, `background={process.env.SHAMSHIR_BG ?? "transparent"}`, check it with
+  `kinetograph strip`, then `motion_graphic(entry, out.mov)` and put the result in `overlays`
+  (`width: 1.0` for full frame). Persian/Arabic text: `<div dir="rtl">`, never `<Text>`.
+
 ## Gotchas
 
 - Clip effect times are relative to the clip; `texts`, `sfx`, `overlays`, `global_effects`

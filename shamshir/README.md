@@ -34,6 +34,12 @@ Guides: [GUIDE_FA.md](GUIDE_FA.md) (Persian, for people) and
   Google's terms; use it at your own risk. Rewritten from ideas in
   [google-flow-mcp](https://github.com/vynnlee/google-flow-mcp) (MIT).
 
+- **Motion graphics (optional):** `motion_graphic` renders a
+  [Kinetograph](https://github.com/0xS4N4TG/kinetograph) TSX composition (titles, kinetic text,
+  shapes, Lottie) to a transparent clip for `overlays`. Kinetograph drops alpha in video, so
+  Shamshir renders on black and white and computes exact alpha. Kinetograph is a separate install
+  under the PolyForm Small Business licence; it needs a GPU (or a software Vulkan driver, slower).
+
 Rendered clip segments are cached, so a small change to the edit list renders fast.
 
 ## Install

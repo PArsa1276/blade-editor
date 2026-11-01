@@ -110,3 +110,12 @@ def test_stabilize_and_emoji(media, tmp_path):
         return np.mean([np.abs(analyze._phase_shift(f[i - 1], f[i], win)[:2]).sum() for i in range(1, len(f))])
 
     assert jitter(out) < 0.4 * jitter(shaky)
+
+
+@pytest.mark.skipif(not __import__("os").environ.get("SHAMSHIR_TEST_KG_ENTRY"),
+                    reason="set SHAMSHIR_TEST_KG_ENTRY to a Kinetograph entry to run")
+def test_motion_graphic_alpha(tmp_path):
+    import os
+    from shamshir import motion
+    r = motion.render(os.environ["SHAMSHIR_TEST_KG_ENTRY"], tmp_path / "mg.mov", draft=True)
+    assert r["pix_fmt"].startswith("yuva")
