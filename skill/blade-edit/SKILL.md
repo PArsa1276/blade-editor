@@ -73,6 +73,9 @@ reference. Report the path, what matches, and the honest limits.
 
 The recogniser (Whisper) makes mistakes, mostly in Persian/Arabic, with accents and noise. You
 are the editor of its text:
+0. Model: call `speech_models`. If nothing is saved, show the user the choices and the models found
+   on their computer and ask which to use; pass it as `model` with `remember=true` (a `.pt` file
+   needs `pip install openai-whisper` in Blade's venv - offer to run it).
 1. `transcribe(path, language="fa", prompt="<names, brands, topic words>")`. Read `review`: one
    numbered line per segment, unsure words in [[ ]].
 2. Correct each wrong line from the meaning and the context: misheard words, names, spelling

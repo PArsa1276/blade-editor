@@ -35,7 +35,9 @@ TRUST MEASUREMENTS: cuts from `analyze_video` are measured; check doubts once wi
 `verify_cuts`, re-run at most once with `sensitivity`. Repeated analysis of a file is refused
 (`limit_reached`): accept the earlier result. At most 2 previews and 2 revision rounds.
 
-CAPTIONS (3 steps, never skip step 2): `transcribe` (set language; put spoken names/topic words in
+CAPTIONS (3 steps, never skip step 2). Before the first transcription, if `speech_models` shows
+no saved choice, show the user its choices (and models found on their computer) and ask which to
+use; then pass it with remember=true. `transcribe` (set language; put spoken names/topic words in
 `prompt`) -> read every `review` line and correct misheard words, names, spelling and
 punctuation with `fix_transcript` (only changed lines; keep the spoken words, do not summarise)
 -> `make_caption_texts(transcript_path, keep=<jump-cut pairs>)` -> put its texts_file in `texts`.
@@ -418,16 +420,32 @@ def compare_videos(reference: str, output: str, count: int = 8, project: str | N
 
 
 @mcp.tool()
-def transcribe(path: str, language: str | None = None, model: str = captions.DEFAULT_MODEL,
+def speech_models() -> dict:
+    """The speech-recognition (Whisper) models the user can choose for captions: ready names, the
+    models already on this computer (e.g. an OpenAI large-v3 .pt file) and the saved choice. If
+    `saved` is empty, ask the user which one to use before the first `transcribe`."""
+    return {"saved": captions.saved_model(), "default": captions.DEFAULT_MODEL, "choices": captions.CHOICES,
+            "found_on_this_computer": captions.find_local_models(),
+            "how": "Pass the name or the file/folder path as transcribe(model=...); remember=true makes it "
+                   "the default for next time."}
+
+
+@mcp.tool()
+def transcribe(path: str, language: str | None = None, model: str | None = None, remember: bool = False,
                device: str = "auto", prompt: str | None = None, project: str | None = None) -> dict:
     """Step 1 of captions: speech to text with word times (needs faster-whisper). The full result
     is saved to `transcript_path`; you get `review`: one numbered line per segment, unsure words
     in [[ ]]. READ IT and correct it with `fix_transcript` before captions (step 2).
     language: e.g. "fa", "en" (set it; detection can be wrong). prompt: names, brands and topic
-    words that are spoken (helps the recogniser spell them). model: large-v3-turbo (default, best;
-    downloaded once, ~1.6 GB), medium, small (fast, weak for Persian). device: auto (falls back to
-    the CPU when the GPU's CUDA libraries are missing), cpu or cuda."""
+    words that are spoken (helps the recogniser spell them). model: the user's choice (see
+    speech_models): a name (large-v3-turbo, large-v3, medium, small), an OpenAI Whisper .pt file
+    (e.g. .../large-v3.pt) or a faster-whisper folder; empty = the saved choice or large-v3-turbo.
+    remember=true saves `model` as the default. device: auto (falls back to the CPU when the GPU's
+    CUDA libraries are missing), cpu or cuda."""
     r = captions.transcribe(_abs(path), language, model, device, prompt)
+    if remember and model:
+        captions.save_model(model)
+    model = r["model"]
     tp = _save(_project(project), f"transcript_{Path(path).stem}", r)
     unsure = sum(w.get("p", 1) < 0.5 for s in r["segments"] for w in s.get("words") or [])
     return {"language": r["language"], "duration": r["duration"], "device": r["device"], "model": model,
