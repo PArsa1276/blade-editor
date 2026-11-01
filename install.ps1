@@ -48,7 +48,9 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 if (Get-Command node -ErrorAction SilentlyContinue) {
   & $spy -c "from blade_editor import motion; motion.ensure_kinetograph()"
   if ($LASTEXITCODE -eq 0) { Write-Host "OK: Kinetograph ready" } else { Write-Host "Kinetograph skipped (it installs itself on first use)" }
-  npx -y skills add 0xS4N4TG/kinetograph -g -a claude-code -y 2>$null | Out-Null
+  # cmd /c: npm writes notices to stderr, which Windows PowerShell with "Stop" treats as a fatal error.
+  cmd /c "npx -y skills add 0xS4N4TG/kinetograph -g -a claude-code -y >nul 2>&1"
+  if ($LASTEXITCODE -eq 0) { Write-Host "OK: Kinetograph skill" } else { Write-Host "Kinetograph skill skipped" }
 } else { Write-Host "Node.js not installed: Kinetograph is skipped (everything else works)." }
 
 Say "Blade Editor is ready. Quit the Claude app (and Claude Code) completely, then open it again."
