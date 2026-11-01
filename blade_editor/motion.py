@@ -23,6 +23,11 @@ def render(entry: str, out: str | Path, comp: str | None = None, props: dict | N
     if not npx:
         raise RuntimeError("Node.js (npx) is not installed. Kinetograph needs Node.js.")
     entry_p = Path(entry).resolve()
+    chk = subprocess.run([npx, "--no-install", "kinetograph", "--version"], cwd=entry_p.parent,
+                         capture_output=True, text=True, timeout=120)
+    if chk.returncode != 0:
+        raise RuntimeError(f"Kinetograph is not installed for this project. In {entry_p.parent} run: "
+                           "npm i -D kinetograph   (and once: npx skills add 0xS4N4TG/kinetograph)")
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = {bg: out.with_name(f"{out.stem}_{bg}.mov") for bg in ("black", "white")}

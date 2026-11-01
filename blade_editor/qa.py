@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 
 from . import ff
 
@@ -31,8 +32,18 @@ def check(path: str) -> dict:
         issues.append(f"Loudness is {loud} LUFS. Social platforms expect about -14 LUFS.")
     if tp is not None and tp > -0.5:
         issues.append(f"Audio peak is {tp} dBFS. It can clip.")
+    lens = {}
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,duration",
+                          "-of", "csv=p=0", path], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        kind, _, d = line.partition(",")
+        if kind in ("video", "audio") and d not in ("", "N/A"):
+            lens[kind] = float(d)
+    if len(lens) == 2 and abs(lens["video"] - lens["audio"]) > 0.2:
+        issues.append(f"Video ({lens['video']:.2f}s) and audio ({lens['audio']:.2f}s) lengths differ: "
+                      "a clip is shorter than its EDL time (check in/out/ramp against the file).")
     v = info["video"] or {}
-    return {"file": info, "black": black, "freeze_starts": freeze, "silence_starts": silence,
+    return {"stream_seconds": lens,"file": info, "black": black, "freeze_starts": freeze, "silence_starts": silence,
             "loudness_lufs": loud, "peak_dbfs": tp, "issues": issues, "ok": not issues,
             "aspect": f"{v.get('width')}x{v.get('height')}"}
 

@@ -107,6 +107,22 @@ def _score_windows(src_analysis: dict, length: float) -> list[tuple[float, float
     return out
 
 
+def _loop_music(music: str, start: float, duration: float, out_path: str) -> tuple[str, float, str]:
+    have = ff.probe(music)["duration"] - start
+    b = audio.analyze_beats(music, start=start)
+    downs = [d - start for d in b["downbeats"] if 1.0 < d - start <= have]
+    seg = downs[-1] if downs else have
+    reps = int(np.ceil(duration / seg)) + 1
+    out = Path(out_path).with_name(Path(out_path).stem + "_music_loop.wav")
+    ff.run(["-ss", f"{start:.3f}", "-t", f"{seg:.3f}", "-i", music, "-ac", "2", "-ar", "48000",
+            str(out.with_suffix(".seg.wav"))])
+    ff.run(["-stream_loop", str(reps - 1), "-i", str(out.with_suffix(".seg.wav")), "-t", f"{duration + 1:.3f}",
+            str(out)])
+    out.with_suffix(".seg.wav").unlink(missing_ok=True)
+    return str(out), 0.0, (f"The music is {have:.1f}s, shorter than {duration:.1f}s: it was repeated every "
+                           f"{seg:.2f}s (from a bar end). Tell the user, or ask for a longer song.")
+
+
 def build_edl(sources: list[str], music: str, out_path: str, style: dict | str = "hype",
               duration: float | None = None, music_start: float = 0.0,
               width: int = 1080, height: int = 1920, fps: int = 30,
@@ -117,6 +133,12 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
             raise ValueError(f"Unknown style '{style}'. Use one of: {', '.join(PRESETS)}")
         style = dict(PRESETS[style])
     rng = np.random.default_rng(seed)
+    warnings = []
+    have = ff.probe(music)["duration"] - music_start
+    if duration and duration > have + 0.05:
+        # Too short for the requested length: repeat it from a bar end, so the beat grid continues.
+        music, music_start, note = _loop_music(music, music_start, duration, out_path)
+        warnings.append(note)
     beats_info = audio.analyze_beats(music, start=music_start, duration=duration + 2 if duration else None)
     if not beats_info["has_audio"] or len(beats_info["beats"]) < 4:
         raise ValueError("Could not find a beat in the music.")
@@ -211,5 +233,5 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
         edl["texts"].append({"text": title, "start": 0.05, "end": min(2.5, total), "style": "impact",
                              "pos": "center", "anim": "pop"})
     edl["_meta"] = {"bpm": beats_info["bpm"], "cuts": len(clips), "style": style,
-                    "duration": round(total, 3)}
+                    "duration": round(total, 3), "warnings": warnings}
     return edl
