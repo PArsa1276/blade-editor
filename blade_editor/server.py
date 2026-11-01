@@ -6,6 +6,7 @@ import functools
 import inspect
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -25,7 +26,9 @@ FIRST: call `start_here` once per conversation. If first_use=true, ask the user 
 language) if they want the short guide; if yes, call `guide` and translate it fully.
 
 IDEAS: for a creative edit, call `edit_ideas` with the user's request first and build on the best
-recipe (structure, rhythm, the "wow" trick) - adapted to the footage and the user's words.
+recipe (structure, rhythm, the "wow" trick) - adapted to the footage and the user's words. Read
+the 1-3 `edit_playbook` sections the job needs, and its checklist before the final render.
+Every render is a version: "go back" -> edl_versions + restore_version.
 `learn_edit` saves a reference the user likes as a new recipe.
 
 DECIDE BEFORE THE FIRST RENDER: run `reference_breakdown` (when there is a reference) and
@@ -132,6 +135,26 @@ def guide() -> dict:
             "instruction": "Translate everything into the user's language; do not shorten it."}
 
 
+PLAYBOOK = Path(__file__).with_name("PLAYBOOK.md")
+
+
+@mcp.tool()
+def edit_playbook(section: str | None = None) -> dict:
+    """The editing taste guide: rules that make edits feel professional, mapped to Blade's tools
+    (hook, energy, rhythm, motion, speed, transitions, text, color, sound, ending, platform,
+    mistakes, checklist). Without `section` you get the list; ask for 1-3 sections that matter
+    for the job (e.g. "hook,rhythm,sound") - and always "checklist" before the final render."""
+    text = PLAYBOOK.read_text(encoding="utf-8")
+    parts = {m.group(1): m.group(2).strip() for m in re.finditer(r"^## (\w+)\n(.*?)(?=^## |\Z)", text, re.M | re.S)}
+    if not section:
+        return {"sections": list(parts), "intro": text.split("## ", 1)[0].strip()}
+    want = [s.strip().lower() for s in section.split(",") if s.strip()]
+    unknown = [s for s in want if s not in parts]
+    if unknown:
+        raise ValueError(f"Unknown section(s) {unknown}. Use: {', '.join(parts)}")
+    return {s: parts[s] for s in want}
+
+
 @mcp.tool()
 def capabilities() -> dict:
     """List everything the editor can do: EDL format, effects, grades, transitions, text styles,
@@ -142,7 +165,7 @@ def capabilities() -> dict:
         "edl_format": {
             "output": "{path, width=1080, height=1920, fps=30, fit='cover'|'contain'|'blur', grade, global_grade, crf=18, preset='medium', max_mb}",
             "clips[]": "{src (video, image, or 'color:#RRGGBB'), in, out | duration, speed=1, "
-                       "ramp=[[source_seconds, speed], ...] (speed ramp, replaces out/speed), stabilize=false, reverse=false, "
+                       "ramp=[[source_seconds, speed], ...] (speed ramp, replaces out/speed), slowmo=auto|flow|blend|none (slowed parts: flow = optical-flow in-between frames, real smooth slow motion, slower render; auto = flow in the final render for speed <= 0.75, blend in previews), stabilize=false, reverse=false, "
                        "fit, focus=[x,y] (0..1 crop centre for cover) or 'auto' (follows motion), mute, volume, "
                        "grade (name or path to a .cube LUT), effects[], "
                        "transition: 'cut' | 'flash' | 'zoom' | 'glitch' | 'whip' | any ffmpeg xfade name, "
@@ -396,25 +419,75 @@ def auto_edit(sources: list[str], music: str, output_path: str,
     proj = _project(project)
     meta = edl.pop("_meta")
     edl_path = _save(proj, "edl_auto", edl)
+    snapshot = json.loads(json.dumps(edl))
     r = render.render(edl, proj / "work", preview=preview)
+    r["version"] = _add_version(snapshot, preview, f"auto_edit {style if isinstance(style, str) else 'style'}",
+                                project)
     return {"result": r, "edl_path": edl_path, "meta": meta}
 
 
-@mcp.tool()
+def _versions_dir(output_path: str, project: str | None) -> Path:
+    stem = re.sub(r"[^\w-]+", "_", Path(output_path).stem)
+    return _project(project) / "versions" / stem
+
+
+def _add_version(edl: dict, preview: bool, note: str, project: str | None) -> int:
+    d = _versions_dir(edl["output"]["path"], project)
+    d.mkdir(parents=True, exist_ok=True)
+    n = len(list(d.glob("v*.json"))) + 1
+    (d / f"v{n:03d}.json").write_text(json.dumps(
+        {"version": n, "time": time.strftime("%Y-%m-%d %H:%M:%S"), "preview": preview, "note": note,
+         "edl": edl}, ensure_ascii=False, indent=1), encoding="utf-8")
+    return n
+
+
 def render_edl(edl: dict | None = None, edl_path: str | None = None, preview: bool = True,
-               project: str | None = None) -> dict:
+               note: str = "", project: str | None = None) -> dict:
     """Render an edit decision list (see capabilities for the format). Give `edl` inline or an
     `edl_path`. preview=true renders at half size quickly; check it with view_frames, then render
-    with preview=false. Clip segments are cached, so small changes render fast."""
+    with preview=false. Clip segments are cached, so small changes render fast. Every render is
+    saved as a numbered version of its output (note: what changed, e.g. "faster cuts"); see
+    edl_versions / restore_version to compare or go back."""
     if edl is None:
         if not edl_path:
             raise ValueError("Give edl or edl_path.")
         edl = json.loads(Path(_abs(edl_path)).read_text(encoding="utf-8"))
     proj = _project(project)
     saved = edl_path or _save(proj, "edl", edl)
+    snapshot = json.loads(json.dumps(edl))  # render() fills in defaults; keep what was asked
     r = render.render(edl, proj / "work", preview=preview)
     r["edl_path"] = saved
+    r["version"] = _add_version(snapshot, preview, note, project)
     return r
+
+
+@mcp.tool()
+def edl_versions(output_path: str, project: str | None = None) -> dict:
+    """All saved versions of an output (newest last): number, time, preview or final, note, and
+    the clip/text counts. Use it when the user says "go back", "the earlier one was better"."""
+    d = _versions_dir(output_path, project)
+    out = []
+    for f in sorted(d.glob("v*.json")) if d.is_dir() else []:
+        v = json.loads(f.read_text(encoding="utf-8"))
+        e = v["edl"]
+        out.append({"version": v["version"], "time": v["time"], "preview": v["preview"], "note": v["note"],
+                    "clips": len(e.get("clips", [])), "texts": len(e.get("texts", [])), "path": str(f)})
+    return {"output": output_path, "versions": out}
+
+
+@mcp.tool()
+def restore_version(output_path: str, version: int, preview: bool = False, project: str | None = None) -> dict:
+    """Go back to a saved version: render its EDL again (fast: unchanged clips are cached). The
+    restored render becomes a new version, so nothing is lost."""
+    f = _versions_dir(output_path, project) / f"v{int(version):03d}.json"
+    if not f.exists():
+        raise ValueError(f"No version {version} for {output_path}. Call edl_versions to see them.")
+    edl = json.loads(f.read_text(encoding="utf-8"))["edl"]
+    return _render_edl(edl=edl, preview=preview, note=f"restored v{int(version):03d}", project=project)
+
+
+_render_edl = render_edl
+render_edl = mcp.tool()(render_edl)
 
 
 @mcp.tool()

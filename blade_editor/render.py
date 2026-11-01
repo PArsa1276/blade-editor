@@ -119,6 +119,8 @@ def normalize(edl: dict) -> dict:
         is_image = Path(str(src)).suffix.lower() in IMAGE_EXT or str(src).startswith("color:")
         c["_image"] = is_image
         c["speed"] = _num(c.get("speed"), 1.0)
+        if c.get("slowmo", "auto") not in ("auto", "flow", "blend", "none"):
+            raise ValueError(f"clip {i}: slowmo must be auto, flow, blend or none.")
         if c["speed"] <= 0:
             raise ValueError(f"clip {i}: speed must be > 0.")
         c["in"] = _num(c.get("in"), 0.0)
@@ -221,6 +223,21 @@ def timeline(edl: dict) -> list[dict]:
     return rows
 
 
+def _slow(speed: float, mode: str, fps: int, W: int, H: int, final: bool) -> list[str]:
+    """New in-between frames for slowed footage. flow: motion-compensated (optical flow, real
+    new frames, slow to render); blend: mixes neighbour frames (fast); none: repeats frames."""
+    if speed >= 0.999 or mode == "none":
+        return []
+    if mode == "auto":
+        mode = "flow" if final and speed <= 0.75 else "blend"
+    if mode == "blend":
+        return [f"framerate=fps={fps}"]
+    m = max(W, H)
+    # Work at about output size: optical flow on 4K frames would be very slow.
+    return [f"scale={m}:{m}:force_original_aspect_ratio=decrease:force_divisible_by=2",
+            f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"]
+
+
 def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
     W = int(out["width"] * scale) // 2 * 2
     H = int(out["height"] * scale) // 2 * 2
@@ -251,8 +268,10 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
         v += _stabilize(src, c["in"], c["_src_dur"], seg.with_suffix(".cmd"))
     if c.get("reverse") and not c["_image"]:
         v.append("reverse")
+    smooth = c.get("slowmo", "auto")
     if c["speed"] != 1.0:
         v.append(f"setpts=PTS/{c['speed']:.5f}")
+        v += _slow(c["speed"], smooth, fps, W, H, scale >= 1)
     v.append(f"fps={fps}")
     graph = [f"[0:v]{','.join(v)}[v0]"]
     if c.get("ramp"):
@@ -260,7 +279,9 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
         # Keep stabilize/reverse from `v` (drop its final fps; the ramp sets fps after concat).
         graph = [f"[0:v]{','.join(v[:-1])},split={n}" + "".join(f"[r{k}]" for k in range(n))]
         for k, (ln, sp) in enumerate(c["ramp"]):
-            graph.append(f"[r{k}]trim=start={t:.4f}:duration={float(ln):.4f},setpts=(PTS-STARTPTS)/{float(sp):.5f}[q{k}]")
+            slow = "".join("," + f for f in _slow(float(sp), smooth, fps, W, H, scale >= 1))
+            graph.append(f"[r{k}]trim=start={t:.4f}:duration={float(ln):.4f},setpts=(PTS-STARTPTS)/{float(sp):.5f}"
+                         f"{slow}[q{k}]")
             parts.append(f"[q{k}]")
             t += float(ln)
         graph.append(f"{''.join(parts)}concat=n={n}:v=1:a=0,fps={fps}[v0]")

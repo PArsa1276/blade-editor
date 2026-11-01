@@ -287,3 +287,34 @@ def test_video_prompt_is_timed_and_checked():
     assert "[00.00-03.00s] Camera: wide 24mm" in veo and "Negative prompt: text." in veo
     bad = prompts.build(beats[:1], "x", model="veo", negative="no text")
     assert any("last beat" in i for i in bad["issues"]) and any("'no'" in i for i in bad["issues"])
+
+
+def test_versions_and_restore(tmp_path, monkeypatch):
+    from blade_editor import server
+    monkeypatch.setattr(server, "HOME", tmp_path / "projects")
+    out = str(tmp_path / "v.mp4")
+    edl = {"output": {"path": out, "width": 320, "height": 240}, "clips": [{"src": "color:red", "duration": 1}]}
+    assert server._render_edl(edl=edl, note="first")["version"] == 1
+    edl["clips"][0]["src"] = "color:blue"
+    assert server._render_edl(edl=edl, note="blue")["version"] == 2
+    vs = server.edl_versions(out)["versions"]
+    assert [v["note"] for v in vs] == ["first", "blue"]
+    r = server.restore_version(out, 1)
+    assert r["version"] == 3 and server.edl_versions(out)["versions"][-1]["note"] == "restored v001"
+
+
+def test_edit_playbook_sections():
+    from blade_editor import server
+    idx = server.edit_playbook()
+    assert {"hook", "rhythm", "speed", "checklist"} <= set(idx["sections"])
+    r = server.edit_playbook("hook, checklist")
+    assert "first 1-2 s" in r["hook"] and "quality_check" in r["checklist"]
+
+
+def test_slowmo_modes():
+    from blade_editor import render
+    assert render._slow(1.0, "auto", 30, 1080, 1920, True) == []
+    assert "minterpolate" in render._slow(0.5, "auto", 30, 1080, 1920, True)[-1]  # final render
+    assert render._slow(0.5, "auto", 30, 540, 960, False) == ["framerate=fps=30"]  # preview
+    assert render._slow(0.9, "auto", 30, 1080, 1920, True) == ["framerate=fps=30"]
+    assert render._slow(0.5, "none", 30, 1080, 1920, True) == []
