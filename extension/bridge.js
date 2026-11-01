@@ -4,7 +4,21 @@ const PORT = 17321;
 let ws = null;
 let flowTab = null;
 
-function connect() {
+let checking = false;
+
+async function connect() {
+  if (ws && ws.readyState <= 1) return;
+  if (checking) return;
+  // Ask quietly first: a failed fetch is not reported, a failed WebSocket shows up in
+  // chrome://extensions as "ERR_CONNECTION_REFUSED" every time Blade is not running.
+  checking = true;
+  try {
+    await fetch(`http://127.0.0.1:${PORT}/`, { mode: 'no-cors', cache: 'no-store' });
+  } catch (e) {
+    return;  // Blade is not running now; try again later
+  } finally {
+    checking = false;
+  }
   if (ws && ws.readyState <= 1) return;
   try { ws = new WebSocket(`ws://127.0.0.1:${PORT}`); } catch (e) { ws = null; return; }
   ws.onmessage = async (ev) => {
