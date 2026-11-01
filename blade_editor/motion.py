@@ -1,4 +1,5 @@
-"""Motion graphics from Kinetograph (optional, separate install: npm i -D kinetograph).
+"""Motion graphics from Kinetograph. Blade Editor installs Kinetograph by itself on first use
+into ~/.blade-editor/kinetograph (needs Node.js) and uses it for every project.
 
 Kinetograph drops the alpha channel in every video codec, so the graphic is rendered twice,
 on black and on white, and the exact alpha comes from the difference (difference matting).
@@ -17,22 +18,38 @@ from pathlib import Path
 from . import ff
 
 
+KG_HOME = Path(os.environ.get("BLADE_KG_HOME", Path.home() / ".blade-editor" / "kinetograph"))
+
+
+def ensure_kinetograph(timeout: float = 900) -> list[str]:
+    """Command prefix that runs the Kinetograph CLI; installs it once if it is missing."""
+    node, npm = shutil.which("node"), shutil.which("npm")
+    if not node:
+        raise RuntimeError("Node.js is not installed. Run the Blade Editor installer again (it installs "
+                           "Node.js), or install the LTS version from https://nodejs.org")
+    cli = KG_HOME / "node_modules" / "kinetograph" / "dist" / "cli.js"
+    if not cli.exists():
+        if not npm:
+            raise RuntimeError("npm is missing; reinstall Node.js from https://nodejs.org")
+        KG_HOME.mkdir(parents=True, exist_ok=True)
+        if not (KG_HOME / "package.json").exists():
+            (KG_HOME / "package.json").write_text('{"name": "blade-kinetograph", "private": true}')
+        p = subprocess.run([npm, "install", "--no-fund", "--no-audit", "kinetograph"], cwd=KG_HOME,
+                           capture_output=True, text=True, timeout=timeout)
+        if p.returncode != 0 or not cli.exists():
+            raise RuntimeError(f"Could not install Kinetograph automatically:\n{(p.stderr or p.stdout)[-1500:]}")
+    return [node, str(cli)]
+
+
 def render(entry: str, out: str | Path, comp: str | None = None, props: dict | None = None,
            draft: bool = False, timeout: float = 1800) -> dict:
-    npx = shutil.which("npx")
-    if not npx:
-        raise RuntimeError("Node.js (npx) is not installed. Kinetograph needs Node.js.")
+    kg = ensure_kinetograph()
     entry_p = Path(entry).resolve()
-    chk = subprocess.run([npx, "--no-install", "kinetograph", "--version"], cwd=entry_p.parent,
-                         capture_output=True, text=True, timeout=120)
-    if chk.returncode != 0:
-        raise RuntimeError(f"Kinetograph is not installed for this project. In {entry_p.parent} run: "
-                           "npm i -D kinetograph   (and once: npx skills add 0xS4N4TG/kinetograph)")
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = {bg: out.with_name(f"{out.stem}_{bg}.mov") for bg in ("black", "white")}
     for bg, path in tmp.items():
-        cmd = [npx, "kinetograph", "render", str(entry_p), "-o", str(path), "--codec", "prores",
+        cmd = [*kg, "render", str(entry_p), "-o", str(path), "--codec", "prores",
                "--prores-profile", "4444", "--concurrency", "4"]
         if comp:
             cmd += ["--comp", comp]

@@ -37,4 +37,15 @@ Say "Connecting Blade Editor to Claude (app and Claude Code)"
 if ($LASTEXITCODE -ne 0) { Write-Host "Could not write the Claude settings. Quit the Claude app and run this file again."; exit 1 }
 New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null
 Copy-Item -Recurse -Force "skill\*" "$HOME\.claude\skills\"
+Say "Optional: Node.js + Kinetograph (animated titles and 3D graphics)"
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+  winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
+  Refresh-Path
+}
+if (Get-Command node -ErrorAction SilentlyContinue) {
+  & $spy -c "from blade_editor import motion; motion.ensure_kinetograph()"
+  if ($LASTEXITCODE -eq 0) { Write-Host "OK: Kinetograph ready" } else { Write-Host "Kinetograph skipped (it installs itself on first use)" }
+  npx -y skills add 0xS4N4TG/kinetograph -g -a claude-code -y 2>$null | Out-Null
+} else { Write-Host "Node.js not installed: Kinetograph is skipped (everything else works)." }
+
 Say "Blade Editor is ready. Quit the Claude app (and Claude Code) completely, then open it again."

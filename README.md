@@ -113,8 +113,9 @@ Inside an edit list:
 ## Requirements
 
 - Python 3.10+ and ffmpeg (the installers add them when they are missing).
-- Optional: `faster-whisper` for captions (installed by the installers), Playwright for Google
-  Flow (`pip install ".[flow]"`), Node.js + Kinetograph for motion graphics (a GPU makes it fast).
+- Optional: `faster-whisper` for captions and Node.js + Kinetograph for motion graphics - the
+  installers add both, and Kinetograph also installs itself on first use (a GPU makes it fast).
+  Playwright for Google Flow: `pip install ".[flow]"`.
 
 Manual install:
 ```bash
@@ -143,4 +144,4 @@ pip install ".[test]" && pytest -q
 - Font: Vazirmatn, SIL Open Font License 1.1 (`licenses/`).
 - Emoji fallback: Twemoji (CC-BY 4.0), downloaded only when no colour-emoji font is on the computer.
 - Ideas for the Google Flow part from [google-flow-mcp](https://github.com/vynnlee/google-flow-mcp) (MIT), rewritten.
-- Kinetograph is a separate install under its own PolyForm Small Business licence.
+- Kinetograph is downloaded from npm into `~/.blade-editor/kinetograph` (not bundled); it has its own PolyForm Small Business licence.

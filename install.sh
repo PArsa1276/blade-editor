@@ -33,4 +33,16 @@ say "Connecting Blade Editor to Claude (app and Claude Code)"
 mkdir -p "$HOME/.claude/skills" && cp -R skill/* "$HOME/.claude/skills/"
 echo "OK: connected"
 
+say "Optional: Node.js + Kinetograph (animated titles and 3D graphics)"
+if ! command -v node >/dev/null; then
+  if command -v brew >/dev/null; then brew install node || true
+  elif command -v apt-get >/dev/null; then sudo apt-get install -y nodejs npm || true; fi
+fi
+if command -v node >/dev/null; then
+  "$SPY" -c "from blade_editor import motion; motion.ensure_kinetograph()" && echo "OK: Kinetograph ready" || echo "Kinetograph skipped (it installs itself on first use)"
+  npx -y skills add 0xS4N4TG/kinetograph -g -a claude-code -y >/dev/null 2>&1 && echo "OK: Kinetograph skill" || true
+else
+  echo "Node.js not installed: Kinetograph is skipped (everything else works)."
+fi
+
 say "Blade Editor is ready. Quit the Claude app (and Claude Code) completely, then open it again."

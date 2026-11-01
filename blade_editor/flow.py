@@ -19,7 +19,7 @@ import sys
 import time
 from pathlib import Path
 
-FLOW_URL = "https://labs.google/fx/tools/flow"
+FLOW_URL = os.environ.get("BLADE_FLOW_URL", "https://labs.google/fx/tools/flow")
 MEDIA_RE = re.compile(r"media\.getMediaUrlRedirect\?name=([A-Za-z0-9_-]+)")
 PROMPT_SELECTORS = ['[contenteditable="true"]', "textarea"]
 SUBMIT_SELECTORS = [
@@ -93,8 +93,10 @@ async def _connect(port: int = 0):
     pages = [p for c in browser.contexts for p in c.pages]
     page = next((p for p in pages if "/flow" in p.url), None)
     if page is None:
-        await pw.stop()
-        raise RuntimeError("Chrome is connected, but no Google Flow tab is open. Open your Flow project.")
+        # No Flow tab yet: open one in the user's own Chrome (logged in already).
+        ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
+        page = await ctx.new_page()
+        await page.goto(FLOW_URL, wait_until="domcontentloaded", timeout=60000)
     return pw, page
 
 
