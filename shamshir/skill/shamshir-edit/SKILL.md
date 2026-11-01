@@ -42,7 +42,10 @@ EDL format and names; do not guess effect, grade or style names.
   use output time. A crossfade overlaps two clips by its `dur`.
 - Persian/Arabic text: use the bundled styles (Vazirmatn); letter spacing is set to 0
   automatically so letters join.
-- `ramp` clips are silent (use music). `speed` keeps pitch-corrected clip audio.
+- `ramp` and `speed` keep the clip audio, time-stretched with pitch kept.
+- `stabilize: true` on a shaky clip (crops about 8% at the edges).
+- Emoji in `texts` become colour stickers above the text; use `overlays` with `src: "emoji:🔥"`
+  to place one anywhere.
 - Shamshir does not generate new footage (no AI video model). After-Effects motion graphics
   (masks, tracked 3D text, particles) cannot be copied; get close with zoom/shake/flash/
   ramps/overlays/text animations and say what differs.

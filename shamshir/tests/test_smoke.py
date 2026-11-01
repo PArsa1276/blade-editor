@@ -90,3 +90,23 @@ def test_ramp_overlay_lut_and_speech(media, tmp_path):
     _ff("-stream_loop", "4", "-i", str(tmp_path / "b.wav"), str(bursts))
     seg = qa.speech_segments(str(bursts))
     assert len(seg["keep"]) == 5  # one kept part per tone burst
+
+
+def test_stabilize_and_emoji(media, tmp_path):
+    shaky = tmp_path / "shaky.mp4"
+    _ff("-f", "lavfi", "-i", "testsrc=s=640x360:r=30:d=3",
+        "-vf", "crop=560:320:x='40+20*sin(t*13)':y='20+15*sin(t*17)',scale=640:360", str(shaky))
+    out = tmp_path / "st.mp4"
+    edl = {"output": {"path": str(out), "width": 640, "height": 360},
+           "clips": [{"src": str(shaky), "stabilize": True, "ramp": [[1.5, 1.0], [1.5, 0.5]]}],
+           "texts": [{"text": "داغ 🔥", "start": 0, "end": 2}]}
+    r = render.render(edl, tmp_path / "work")
+    assert abs(r["duration"] - 4.5) < 0.1
+
+    def jitter(p):
+        f, _ = ff.read_gray_frames(str(p), width=320, duration=1.4)
+        f = f.astype(np.float32)
+        win = np.outer(np.hanning(f.shape[1]), np.hanning(f.shape[2])).astype(np.float32)
+        return np.mean([np.abs(analyze._phase_shift(f[i - 1], f[i], win)[:2]).sum() for i in range(1, len(f))])
+
+    assert jitter(out) < 0.4 * jitter(shaky)

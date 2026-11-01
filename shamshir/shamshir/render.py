@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import effects, ff, sfx, text
+from . import effects, emoji, ff, sfx, text
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 CUSTOM_TRANSITIONS = {"cut", "flash", "zoom", "glitch", "whip"}
@@ -48,6 +48,35 @@ def _fit_graph(fit: str, W: int, H: int, focus: tuple[float, float], src: str, d
         return (f"[{src}]split[fb1][fb2];[fb1]{cover},gblur=sigma=40,eq=brightness=-0.12[fbg];"
                 f"[fb2]{contain}[ffg];[fbg][ffg]overlay=(W-w)/2:(H-h)/2,setsar=1[{dst}]")
     raise ValueError(f"Unknown fit '{fit}'. Use cover, contain or blur.")
+
+
+def _stabilize(src: str, start: float, length: float, cmd_file: Path, margin: float = 0.08) -> list[str]:
+    """Translation stabilizer: measure camera motion, smooth the path, crop against the shake."""
+    from .analyze import _phase_shift
+
+    info = ff.probe(src)["video"]
+    frames, fps = ff.read_gray_frames(src, width=320, start=start, duration=length)
+    if len(frames) < 3:
+        return []
+    f = frames.astype(np.float32)
+    win = np.outer(np.hanning(f.shape[1]), np.hanning(f.shape[2])).astype(np.float32)
+    step = np.array([[0.0, 0.0]] + [_phase_shift(f[i - 1], f[i], win)[:2] for i in range(1, len(f))])
+    path = np.cumsum(step, axis=0)
+    k = max(3, int(fps * 0.5)) | 1
+    pad = np.pad(path, ((k // 2, k // 2), (0, 0)), mode="edge")
+    smooth = np.stack([np.convolve(pad[:, j], np.ones(k) / k, mode="valid") for j in range(2)], axis=1)
+    scale = info["width"] / 320.0
+    W, H = info["width"], info["height"]
+    cw, ch = int(W * (1 - 2 * margin)) // 2 * 2, int(H * (1 - 2 * margin)) // 2 * 2
+    mx, my = (W - cw) / 2, (H - ch) / 2
+    lines = []
+    for i, (px, py) in enumerate((path - smooth) * scale):
+        x = min(max(mx + px, 0), W - cw)
+        y = min(max(my + py, 0), H - ch)
+        # Half a frame early, so the command is due on its own frame (not the next one).
+        lines.append(f"{max(0.0, (i - 0.5) / fps):.4f} crop x {x:.1f}, crop y {y:.1f};")
+    cmd_file.write_text("\n".join(lines), encoding="utf-8")
+    return [f"sendcmd=f='{_fesc(cmd_file)}'", f"crop={cw}:{ch}:{mx:.0f}:{my:.0f}", f"scale={W}:{H}"]
 
 
 def _auto_focus(src: str, start: float, length: float) -> list[float]:
@@ -195,6 +224,8 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
     args += ["-f", "lavfi", "-t", f"{D:.4f}", "-i", "anullsrc=r=48000:cl=stereo"]
 
     v = ["setpts=PTS-STARTPTS"]
+    if c.get("stabilize") and not c["_image"]:
+        v += _stabilize(src, c["in"], c["_src_dur"], seg.with_suffix(".cmd"))
     if c.get("reverse") and not c["_image"]:
         v.append("reverse")
     if c["speed"] != 1.0:
@@ -203,7 +234,8 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
     graph = [f"[0:v]{','.join(v)}[v0]"]
     if c.get("ramp"):
         n, t, parts = len(c["ramp"]), 0.0, []
-        graph = [f"[0:v]setpts=PTS-STARTPTS,split={n}" + "".join(f"[r{k}]" for k in range(n))]
+        # Keep stabilize/reverse from `v` (drop its final fps; the ramp sets fps after concat).
+        graph = [f"[0:v]{','.join(v[:-1])},split={n}" + "".join(f"[r{k}]" for k in range(n))]
         for k, (ln, sp) in enumerate(c["ramp"]):
             graph.append(f"[r{k}]trim=start={t:.4f}:duration={float(ln):.4f},setpts=(PTS-STARTPTS)/{float(sp):.5f}[q{k}]")
             parts.append(f"[q{k}]")
@@ -220,17 +252,30 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
              "setpts=PTS-STARTPTS", "format=yuv420p"]
     graph.append(f"[v1]{','.join(post)}[vout]")
 
-    # shortcut: ramped clips are silent; mix clip audio per piece if a talking ramp is needed.
-    use_audio = c["_has_audio"] and not c.get("mute") and not c.get("ramp")
+    use_audio = c["_has_audio"] and not c.get("mute")
     if use_audio:
         a = ["asetpts=PTS-STARTPTS"]
         if c.get("reverse"):
             a.append("areverse")
-        if c["speed"] != 1.0:
+        if c.get("ramp"):
+            # Same pieces as the video ramp, each time-stretched (pitch kept) and joined.
+            n, t = len(c["ramp"]), 0.0
+            graph.append(f"[0:a]asetpts=PTS-STARTPTS,asplit={n}" + "".join(f"[ra{k}]" for k in range(n)))
+            for k, (ln, sp) in enumerate(c["ramp"]):
+                graph.append(f"[ra{k}]atrim=start={t:.4f}:duration={float(ln):.4f},asetpts=PTS-STARTPTS,"
+                             f"{','.join(_atempo(float(sp)))}[qa{k}]")
+                t += float(ln)
+            graph.append("".join(f"[qa{k}]" for k in range(n)) + f"concat=n={n}:v=0:a=1[ramped]")
+            a = ["asetpts=PTS-STARTPTS"]
+        elif c["speed"] != 1.0:
             a += _atempo(c["speed"])
         a += [f"volume={_num(c.get('volume'), 1.0):.3f}",
               "aformat=sample_rates=48000:channel_layouts=stereo", "apad", f"atrim=duration={D:.4f}"]
-        graph.append(f"[0:a]{','.join(a)}[aout]")
+        if c.get("ramp"):
+            graph.append(f"[ramped]{','.join(a)}[aout]")
+            a = None
+        if a:
+            graph.append(f"[0:a]{','.join(a)}[aout]")
     else:
         graph.append(f"[1:a]atrim=duration={D:.4f}[aout]")
 
@@ -285,9 +330,25 @@ def render(edl: dict, work_dir: str | Path, preview: bool = False) -> dict:
     vpost.append("format=yuv420p")
     graph.append(f"[{cur_v}]{','.join(vpost)}[vbase]")
     cur_v, vpost = "vbase", []
-    for j, ov in enumerate(edl.get("overlays") or []):
+    overlays = list(edl.get("overlays") or [])
+    texts = []
+    for it in edl["texts"]:
+        clean, found = emoji.split(str(it.get("text", "")))
+        if found:
+            pos = it.get("pos", "center")
+            _, fx, fy = (5, *pos) if isinstance(pos, (list, tuple)) else text._POS[pos]
+            w = 0.12
+            for k, e in enumerate(found):
+                overlays.append({"src": f"emoji:{e}", "start": it["start"], "end": it["end"], "width": w,
+                                 "x": fx + (k - (len(found) - 1) / 2) * w * 1.1,
+                                 "y": fy - (0.1 if clean else 0.0) * W / H})
+            it = dict(it, text=clean)
+        if it.get("text"):
+            texts.append(it)
+    edl["texts"] = texts
+    for j, ov in enumerate(overlays):
         # {src, start, end, x, y (0..1 centre), width (fraction of frame width), opacity}
-        osrc = _check_src(ov["src"])
+        osrc = str(emoji.png(ov["src"][6:])) if str(ov["src"]).startswith("emoji:") else _check_src(ov["src"])
         st, en = float(ov.get("start", 0)), float(ov.get("end", total))
         args += (["-loop", "1", "-framerate", str(out["fps"])] if Path(osrc).suffix.lower() in IMAGE_EXT else []) + ["-i", osrc]
         ow = int(W * float(ov.get("width", 0.3))) // 2 * 2

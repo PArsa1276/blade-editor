@@ -64,15 +64,15 @@ def capabilities() -> dict:
         "edl_format": {
             "output": "{path, width=1080, height=1920, fps=30, fit='cover'|'contain'|'blur', grade, global_grade, crf=18, preset='medium', max_mb}",
             "clips[]": "{src (video, image, or 'color:#RRGGBB'), in, out | duration, speed=1, "
-                       "ramp=[[source_seconds, speed], ...] (speed ramp, replaces out/speed; silent), reverse=false, "
+                       "ramp=[[source_seconds, speed], ...] (speed ramp, replaces out/speed), stabilize=false, reverse=false, "
                        "fit, focus=[x,y] (0..1 crop centre for cover) or 'auto' (follows motion), mute, volume, "
                        "grade (name or path to a .cube LUT), effects[], "
                        "transition: 'cut' | 'flash' | 'zoom' | 'glitch' | 'whip' | any ffmpeg xfade name, "
                        "or {type, dur}}",
-            "texts[]": "{text, start, end, style, pos ('top','upper','center','lower','bottom','top_left',...) "
+            "texts[]": "{text (emoji become colour stickers above the text), start, end, style, pos ('top','upper','center','lower','bottom','top_left',...) "
                        "or [x,y] fractions, anim, size, color '#RRGGBB', outline_color, font, rotate}",
             "global_effects[]": "same effect objects, times in output seconds",
-            "overlays[]": "{src (png/jpg/video), start, end, x, y (0..1 centre), width (fraction of frame), opacity}",
+            "overlays[]": "{src (png/jpg/video or 'emoji:🔥'), start, end, x, y (0..1 centre), width (fraction of frame), opacity}",
             "audio": "{music, music_start, volume, fade_in, fade_out, keep_clip_audio, clip_audio_volume, duck, normalize=true (-14 LUFS)}",
             "sfx[]": "{kind | file, at, volume=0.8, dur}",
         },
