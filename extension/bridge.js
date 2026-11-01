@@ -4,7 +4,21 @@ const PORT = 17321;
 let ws = null;
 let flowTab = null;
 
-function connect() {
+let checking = false;
+
+async function connect() {
+  if (ws && ws.readyState <= 1) return;
+  if (checking) return;
+  // Ask quietly first: a failed fetch is not reported, a failed WebSocket shows up in
+  // chrome://extensions as "ERR_CONNECTION_REFUSED" every time Blade is not running.
+  checking = true;
+  try {
+    await fetch(`http://127.0.0.1:${PORT}/`, { mode: 'no-cors', cache: 'no-store' });
+  } catch (e) {
+    return;  // Blade is not running now; try again later
+  } finally {
+    checking = false;
+  }
   if (ws && ws.readyState <= 1) return;
   try { ws = new WebSocket(`ws://127.0.0.1:${PORT}`); } catch (e) { ws = null; return; }
   ws.onmessage = async (ev) => {
@@ -23,9 +37,33 @@ chrome.runtime.onStartup.addListener(connect);
 chrome.runtime.onInstalled.addListener(() => { chrome.alarms.create('blade', { periodInMinutes: 0.5 }); connect(); });
 chrome.alarms.onAlarm.addListener(connect);
 chrome.action.onClicked.addListener(connect);
-// While connected, a small message every 20 s keeps the extension awake.
-setInterval(() => { if (ws && ws.readyState === 1) ws.send('{"ping":1}'); else connect(); }, 20000);
+// While connected, a ping every 20 s keeps the extension awake; while not, a quiet check every 5 s.
+let ticks = 0;
+setInterval(() => { ticks++; if (ws && ws.readyState === 1) { if (ticks % 4 === 0) ws.send('{"ping":1}'); } else connect(); }, 5000);
 connect();
+
+const DEFAULT_PREFIXES = ['https://flow.google.com/', 'https://labs.google/fx/tools/flow'];
+
+// Chrome puts an idle MV3 service worker to sleep and its variables are lost, so the Flow tab id
+// is kept in chrome.storage.session; if that tab is gone, the Flow tab is found again by its URL.
+async function rememberTab(id, prefixes) {
+  flowTab = id;
+  await chrome.storage.session.set(prefixes ? { flowTab: id, prefixes } : { flowTab: id });
+}
+
+async function findFlowTab() {
+  if (flowTab !== null) {
+    try { await chrome.tabs.get(flowTab); return flowTab; } catch (e) { flowTab = null; }
+  }
+  const s = await chrome.storage.session.get(['flowTab', 'prefixes']);
+  if (s.flowTab !== undefined) {
+    try { await chrome.tabs.get(s.flowTab); flowTab = s.flowTab; return flowTab; } catch (e) {}
+  }
+  const prefixes = s.prefixes || DEFAULT_PREFIXES;
+  const t = (await chrome.tabs.query({})).find(x => x.url && prefixes.some(p => x.url.startsWith(p)));
+  if (t) { await rememberTab(t.id); return t.id; }
+  return null;
+}
 
 async function inTab(func, args = []) {
   const res = await chrome.scripting.executeScript({ target: { tabId: flowTab, allFrames: true }, func, args });
@@ -50,13 +88,13 @@ async function run(cmd, a) {
     // Flow moved from labs.google/fx/tools/flow to flow.google.com: accept every given prefix.
     const prefixes = [].concat(a.match);
     const t = tabs.find(x => x.url && prefixes.some(p => x.url.startsWith(p)));
-    if (t) { flowTab = t.id; return { url: t.url, opened: false }; }
+    if (t) { await rememberTab(t.id, prefixes); return { url: t.url, opened: false }; }
     const n = await chrome.tabs.create({ url: a.url, active: true });
-    flowTab = n.id;
+    await rememberTab(n.id, prefixes);
     await waitComplete(n.id);
     return { url: (await chrome.tabs.get(n.id)).url || a.url, opened: true };
   }
-  if (!flowTab) throw new Error('No Flow tab yet (call ensure_tab first).');
+  if (await findFlowTab() === null) throw new Error('No Flow tab is open in Chrome (open flow.google.com).');
 
   if (cmd === 'type_prompt') {
     const r = await inTab((text) => {
@@ -143,7 +181,13 @@ async function run(cmd, a) {
     await chrome.tabs.update(flowTab, { active: true });
     await chrome.windows.update(tab.windowId, { focused: true });
     if (tab.status !== 'complete') await waitComplete(flowTab);
-    const d = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 60 });
+    let d;
+    try {
+      d = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 60 });
+    } catch (e) {
+      throw new Error('Chrome allows the screenshot only after you click the Blade Bridge icon once ' +
+                      'while the Flow tab is open (then it works until the tab is closed or reloaded). ' + e.message);
+    }
     return { b64: d.split(',', 2)[1] };
   }
 

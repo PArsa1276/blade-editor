@@ -38,8 +38,16 @@ class Bridge:
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind(("127.0.0.1", PORT))
         self.server = await websockets.serve(
-            self._handler, sock=self.sock, max_size=None,
+            self._handler, sock=self.sock, max_size=None, process_request=self._ping,
             origins=[f"chrome-extension://{i}" for i in EXTENSION_IDS])
+
+    @staticmethod
+    def _ping(connection, request):
+        # A plain GET (no WebSocket upgrade) is the extension asking "is Blade running?". It answers
+        # without an error, so Chrome logs nothing; a failed WebSocket would be logged as an error.
+        if "upgrade" not in request.headers.get("Connection", "").lower():
+            return connection.respond(200, "blade")
+        return None
 
     async def _handler(self, ws) -> None:
         self.ws = ws

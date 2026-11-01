@@ -254,3 +254,67 @@ def test_speech_model_choice_and_openai_pt(tmp_path, monkeypatch):
     r = captions.transcribe(str(wav), "fa")
     assert seen["m"] == str(pt) and seen["word_timestamps"] and r["segments"][0]["words"][0]["p"] == 0.4
     assert "[[سلام]]" in captions.review_text(r)
+
+
+def test_edit_ideas_and_user_recipes(tmp_path, monkeypatch):
+    from blade_editor import recipes
+    monkeypatch.setattr(recipes, "USER_DIR", tmp_path)
+    assert recipes.ideas("slow motion speed ramp dance")[0]["name"] == "velocity_edit"
+    assert recipes.ideas("travel vlog trip")[0]["name"] == "cinematic_travel"
+    recipes.save("My Car Edit", {"tags": "car night drift", "style": {"cut_every": 1}})
+    top = recipes.ideas("night car drift edit")[0]
+    assert top["name"] == "my_car_edit" and top["source"] == "user"
+
+
+def test_video_prompt_is_timed_and_checked():
+    from blade_editor import prompts
+    beats = [{"t0": 0, "t1": 3, "camera": "wide 24mm, slow dolly in", "action": "a red car drifts around a corner, tyre smoke",
+              "lighting": "low sun from the left, long shadows"},
+             {"t0": 3, "t1": 6, "camera": "low-angle 35mm, tracking left", "action": "the car straightens and speeds past"},
+             {"t0": 6, "t1": 8, "camera": "static close-up 85mm", "action": "smoke clears around the rear light",
+              "dialogue": ["the driver", "Again."]}]
+    r = prompts.build(beats, "Cinematic 35mm film, warm grade", subject="a red 1990s sports car",
+                      setting="empty mountain road at sunset", audio="engine roar, tyre screech, deep bass music",
+                      negative="text, watermark, people")
+    assert r["ok"], r["issues"]
+    p = r["prompt"]
+    assert p.startswith("Single continuous shot. No scene cuts.") and "[0-3s] Wide 24mm" in p
+    assert 'the driver says: "Again."' in p and "No text. No watermark. No people." in p
+    cuts = prompts.build(beats, "x", takes="cuts", audio="a")["prompt"]
+    assert "[3-6s] Cut to:" in cuts and "No scene cuts" not in cuts
+    assert any("3-10 s" in i for i in prompts.build(beats, "x", duration=12, audio="a")["issues"])
+    veo = prompts.build(beats, "x", model="veo", audio="a", negative="text")["prompt"]
+    assert "[00.00-03.00s] Camera: wide 24mm" in veo and "Negative prompt: text." in veo
+    bad = prompts.build(beats[:1], "x", model="veo", negative="no text")
+    assert any("last beat" in i for i in bad["issues"]) and any("'no'" in i for i in bad["issues"])
+
+
+def test_versions_and_restore(tmp_path, monkeypatch):
+    from blade_editor import server
+    monkeypatch.setattr(server, "HOME", tmp_path / "projects")
+    out = str(tmp_path / "v.mp4")
+    edl = {"output": {"path": out, "width": 320, "height": 240}, "clips": [{"src": "color:red", "duration": 1}]}
+    assert server._render_edl(edl=edl, note="first")["version"] == 1
+    edl["clips"][0]["src"] = "color:blue"
+    assert server._render_edl(edl=edl, note="blue")["version"] == 2
+    vs = server.edl_versions(out)["versions"]
+    assert [v["note"] for v in vs] == ["first", "blue"]
+    r = server.restore_version(out, 1)
+    assert r["version"] == 3 and server.edl_versions(out)["versions"][-1]["note"] == "restored v001"
+
+
+def test_edit_playbook_sections():
+    from blade_editor import server
+    idx = server.edit_playbook()
+    assert {"hook", "rhythm", "speed", "checklist"} <= set(idx["sections"])
+    r = server.edit_playbook("hook, checklist")
+    assert "first 1-2 s" in r["hook"] and "quality_check" in r["checklist"]
+
+
+def test_slowmo_modes():
+    from blade_editor import render
+    assert render._slow(1.0, "auto", 30, 1080, 1920, True) == []
+    assert "minterpolate" in render._slow(0.5, "auto", 30, 1080, 1920, True)[-1]  # final render
+    assert render._slow(0.5, "auto", 30, 540, 960, False) == ["framerate=fps=30"]  # preview
+    assert render._slow(0.9, "auto", 30, 1080, 1920, True) == ["framerate=fps=30"]
+    assert render._slow(0.5, "none", 30, 1080, 1920, True) == []

@@ -56,12 +56,15 @@ Complete beginners: follow [INSTALL.md](INSTALL.md) (English) or [INSTALL_FA.md]
 | `auto_edit` | Beat-synced edit in one call, in a preset style (`hype`, `phonk`, `cinematic`, `smooth`, `glitch`) or in the style of a reference video |
 | `render_edl` | Full control with a JSON edit list; preview at half size first; unchanged clips are cached, so changes render fast |
 | `speech_segments` | Finds the parts with speech for jump cuts (pause removal) |
+| `edit_playbook` | **Taste guide**: the rules that make edits feel professional (hook, energy curve, rhythm, motion continuity, speed ramps, transitions, text safe zones, colour, sound design, endings, platform specs, common mistakes, final checklist), each mapped to Blade's tools |
+| `edl_versions`, `restore_version` | Every render is a numbered version with a note: compare them or go back ("the earlier one was better") - re-rendered fast from cache |
+| `edit_ideas`, `learn_edit` | **Ideas library**: 12 proven edit formats (beat-sync flash, velocity, aura, cinematic travel, glitch, UGC hook, before/after, 3D spin, kinetic type, POV, smooth, sport) with structure, rhythm, camera, effects and one "wow" trick each; `learn_edit` turns any edit you like (e.g. a CapCut template preview or a TikTok Creative Center ad) into your own reusable recipe |
 | `transcribe` -> `fix_transcript` -> `make_caption_texts` | Captions in 3 steps: Whisper - **your choice of model** (`speech_models`: large-v3-turbo by default, large-v3, medium, small, your own OpenAI Whisper `.pt` file such as large-v3.pt, or a faster-whisper folder; the choice is saved) - writes the text with word times and marks unsure words; **the AI reads and corrects it** (misheard words, names, Persian spelling), times are re-aligned; then karaoke captions that also follow jump cuts |
 | `make_sfx` | Generated sound effects: whoosh, hit, riser, click, glitch, boom, swish |
 | `camera_preset` | Smooth ready-made camera moves: 360 spin with stops, sway, whip, zoom pulse, tilt swing |
 
 Inside an edit list:
-- **Clips:** trim, speed, **speed ramps (with sound)**, reverse, **stabilize**, vertical crop that
+- **Clips:** trim, speed, **speed ramps (with sound)**, **real slow motion with optical-flow in-between frames** (`slowmo`), reverse, **stabilize**, vertical crop that
   can **follow the motion**, blurred-background fit, images and colour cards.
 - **Camera:** keyframed moves (`camera` effect): copy a reference shot's sway, whip, rotation and
   zoom, or use a preset - with smooth easing and automatic cover zoom (no black corners).
@@ -97,10 +100,11 @@ Inside an edit list:
   one finished edit - no half versions.
 - **No loops:** repeated analysis of the same file is refused by the server, so a doubt costs
   one check, not your whole token budget.
-- Three bundled skills, installed together:
+- Four bundled skills, installed together:
   - `blade-edit` - which tool for what, and how to combine them;
   - `blade-spec` - spec-driven workflow (adapted from spec-kit): spec -> plan -> build -> verify;
-  - `blade-ponytail` - lean mode: fewest calls, renders and tokens, hard limits.
+  - `blade-ponytail` - lean mode: fewest calls, renders and tokens, hard limits;
+  - `blade-prompt` - prompt optimizer: short request -> full edit brief, and second-by-second Google Flow (Veo) prompts (`video_prompt` tool).
 
 ## Example requests
 

@@ -27,6 +27,7 @@ def _port():
 def test_flow_downloads_only_the_new_video(tmp_path, monkeypatch):
     """Uses the 'own Chrome' path: Chrome writes DevToolsActivePort; Blade Editor finds it."""
     from blade_editor import flow
+    monkeypatch.setattr(flow, "PENDING", tmp_path / "pending.json")
 
     for name, pat in (("old.mp4", "testsrc"), ("new.mp4", "smptebars")):
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"{pat}=d=1",
@@ -75,6 +76,7 @@ def test_flow_through_blade_bridge_extension(tmp_path, monkeypatch):
     web = _port()
     monkeypatch.setenv("BLADE_CHROME_DATA", str(tmp_path / "none"))  # no DevTools route
     from blade_editor import flow
+    monkeypatch.setattr(flow, "PENDING", tmp_path / "pending.json")
     monkeypatch.setattr(flow, "FLOW_URL", f"http://127.0.0.1:{web}/fx/tools/flow/project/x")
     procs = [
         subprocess.Popen([sys.executable, "-I", str(Path(__file__).parent / "flow_mock_server.py"),
@@ -97,7 +99,14 @@ def test_flow_through_blade_bridge_extension(tmp_path, monkeypatch):
             assert st["project_open"] is True and "message" not in st
             dry = await flow.generate_video("a cat", tmp_path / "out", confirm=False)
             assert dry["via"] == "blade-bridge-extension" and not dry["credits_spent"]
-            return await flow.generate_video("a cat", tmp_path / "out", confirm=True, timeout=40, poll=1)
+            # The mock needs 3 s: a 1 s wait returns "generating" and the clip is remembered.
+            g = await flow.generate_video("a cat", tmp_path / "out", confirm=True, timeout=1, poll=1)
+            assert g["status"] == "generating" and (tmp_path / "pending.json").exists()
+            with pytest.raises(RuntimeError, match="not collected yet"):  # no second spend
+                await flow.generate_video("a cat", tmp_path / "out", confirm=True)
+            r = await flow.collect(tmp_path / "out", wait=40, poll=1)
+            assert not (tmp_path / "pending.json").exists()
+            return r
         r = asyncio.run(run())
         assert r["status"] == "done" and len(r["files"]) == 1
         assert Path(r["files"][0]).read_bytes() == (tmp_path / "new.mp4").read_bytes()

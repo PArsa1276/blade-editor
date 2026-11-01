@@ -13,6 +13,7 @@ Rewritten from the ideas in vynnlee/google-flow-mcp (MIT) with these fixes:
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
 import sys
@@ -300,9 +301,64 @@ async def status(port: int = 0) -> dict:
         await d.close()
 
 
+PENDING = Path(os.environ.get("BLADE_FLOW_PENDING", Path.home() / ".blade-editor" / "flow_pending.json"))
+PENDING_MAX_AGE = 20 * 60  # a Flow clip normally takes 1-5 minutes
+
+
+def _pending() -> dict | None:
+    try:
+        job = json.loads(PENDING.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return job if time.time() - job.get("started", 0) < PENDING_MAX_AGE else None
+
+
+def _set_pending(job: dict | None) -> None:
+    if job is None:
+        PENDING.unlink(missing_ok=True)
+    else:
+        PENDING.parent.mkdir(parents=True, exist_ok=True)
+        PENDING.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
+
+
+async def _wait_new(d, job: dict, wait: float, poll: float) -> dict:
+    """Poll for videos that were not on the page when the job was sent; download them."""
+    before, out_dir = set(job["before"]), Path(job["out_dir"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    end, files, dialog_seen = time.time() + wait, [], False
+    while True:
+        dialog_seen = dialog_seen or await d.dialog()
+        new = {k: v for k, v in (await d.media()).items() if k not in before and v["is_video"]}
+        for key, info in new.items():
+            out = out_dir / f"flow_{re.sub(r'[^A-Za-z0-9]', '', key)[-12:]}_{int(job['started'])}.mp4"
+            if out.exists() or await d.download(key, info, out):
+                files.append(str(out))
+        if files:
+            _set_pending(None)
+            return {"status": "done", "credits_spent": True, "files": sorted(set(files)), "via": d.name,
+                    "seconds": round(time.time() - job["started"])}
+        if time.time() >= end:
+            break
+        await d.wait(poll)
+    return {"status": "generating", "credits_spent": True, "files": [], "via": d.name,
+            "seconds": round(time.time() - job["started"]),
+            "message": ("Flow is showing a dialog; the user must handle it in the browser. " if dialog_seen else "")
+            + "The clip is still being made. Call flow_collect to wait for it and download it. "
+              "Do NOT call flow_generate_video again for this clip: that spends credits twice.",
+            "_screenshot": await d.shot()}
+
+
 async def generate_video(prompt: str, out_dir: str | Path, confirm: bool = False, port: int = 0,
-                         direct: bool = True, timeout: float = 600, poll: float = 5) -> dict:
-    """Type the prompt in Flow. With confirm=True also submit and download the new video(s)."""
+                         direct: bool = True, timeout: float = 90, poll: float = 5,
+                         force_new: bool = False) -> dict:
+    """Type the prompt in Flow. With confirm=True also submit; wait up to `timeout` s (short, so the
+    MCP call does not break), then hand over to collect()."""
+    job = _pending()
+    if confirm and job and not force_new:
+        raise RuntimeError(
+            f"A Flow clip sent {round((time.time() - job['started']) / 60, 1)} min ago is not collected yet "
+            f"(prompt: {job['prompt'][:80]!r}). Call flow_collect first, or look in Flow. Use force_new=true "
+            "only if the user confirms a NEW clip (it spends credits).")
     d = await _driver(port)
     try:
         text = ("Generate this video now, with no questions, exactly as described: " + prompt) if direct else prompt
@@ -313,35 +369,25 @@ async def generate_video(prompt: str, out_dir: str | Path, confirm: bool = False
             return {"status": "ready_for_confirmation", "credits_spent": False, "prompt": text, "via": d.name,
                     "message": "The prompt is typed in Flow. Call again with confirm=true to generate "
                                "(this spends your Flow credits).", "_screenshot": await d.shot()}
-        before = set(await d.media())
+        before = list(await d.media())
         if not await d.submit():
             raise RuntimeError("No generate button found. The Flow page may have changed.")
-        out_dir = Path(out_dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        start, files, dialog_seen = time.time(), [], False
-        while time.time() - start < timeout:
-            await d.wait(poll)
-            dialog_seen = dialog_seen or await d.dialog()
-            new = {k: v for k, v in (await d.media()).items() if k not in before and v["is_video"]}
-            for key, info in new.items():
-                out = out_dir / f"flow_{re.sub(r'[^A-Za-z0-9]', '', key)[-12:]}_{int(start)}.mp4"
-                if not out.exists() and await d.download(key, info, out):
-                    files.append(str(out))
-            if files:
-                return {"status": "done", "credits_spent": True, "files": files, "via": d.name,
-                        "seconds": round(time.time() - start)}
-        return {"status": "timeout", "credits_spent": True, "files": [],
-                "message": ("Flow is showing a dialog; approve it in the browser, then call "
-                            "flow_collect." if dialog_seen else "No new video appeared in time; "
-                            "call flow_collect later."), "_screenshot": await d.shot()}
+        job = {"started": time.time(), "prompt": prompt, "before": before, "out_dir": str(Path(out_dir))}
+        _set_pending(job)  # saved at once: if Blade restarts now, flow_collect still finds the clip
+        return await _wait_new(d, job, timeout, poll)
     finally:
         await d.close()
 
 
-async def collect(out_dir: str | Path, port: int = 0, limit: int = 4) -> dict:
-    """Download the newest videos visible on the Flow page (after a timeout or for old results)."""
+async def collect(out_dir: str | Path, port: int = 0, limit: int = 4, wait: float = 90,
+                  poll: float = 5) -> dict:
+    """Wait for and download the clip from the last flow_generate_video; with no clip waiting,
+    download the newest videos on the Flow page."""
     d = await _driver(port)
     try:
+        job = _pending()
+        if job:
+            return await _wait_new(d, job, wait, poll)
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         files = []
@@ -350,6 +396,6 @@ async def collect(out_dir: str | Path, port: int = 0, limit: int = 4) -> dict:
             out = out_dir / f"flow_{re.sub(r'[^A-Za-z0-9]', '', key)[-12:]}.mp4"
             if out.exists() or await d.download(key, info, out):
                 files.append(str(out))
-        return {"files": files}
+        return {"status": "newest", "files": files}
     finally:
         await d.close()
