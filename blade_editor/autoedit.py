@@ -132,6 +132,7 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
         if style not in PRESETS:
             raise ValueError(f"Unknown style '{style}'. Use one of: {', '.join(PRESETS)}")
         style = dict(PRESETS[style])
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
     warnings = []
     have = ff.probe(music)["duration"] - music_start
