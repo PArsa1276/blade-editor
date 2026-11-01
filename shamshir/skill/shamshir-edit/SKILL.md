@@ -36,6 +36,10 @@ EDL format and names; do not guess effect, grade or style names.
   adjust the EDL until the style table is close.
 - **Branding:** `overlays` for a logo (png, width 0.12-0.18, corner x/y) or picture-in-picture.
 
+- **New AI shots (Google Flow):** `flow_status` -> `flow_generate_video(prompt)` (dry run, no
+  credits; show the screenshot and ASK the user) -> `flow_generate_video(prompt, confirm=true)`
+  -> use the returned file as a clip `src`. Never approve credit dialogs for the user.
+
 ## Gotchas
 
 - Clip effect times are relative to the clip; `texts`, `sfx`, `overlays`, `global_effects`
@@ -46,6 +50,6 @@ EDL format and names; do not guess effect, grade or style names.
 - `stabilize: true` on a shaky clip (crops about 8% at the edges).
 - Emoji in `texts` become colour stickers above the text; use `overlays` with `src: "emoji:🔥"`
   to place one anywhere.
-- Shamshir does not generate new footage (no AI video model). After-Effects motion graphics
+- Without Google Flow, Shamshir does not generate new footage. After-Effects motion graphics
   (masks, tracked 3D text, particles) cannot be copied; get close with zoom/shake/flash/
   ramps/overlays/text animations and say what differs.

@@ -27,6 +27,13 @@ Guides: [GUIDE_FA.md](GUIDE_FA.md) (Persian, for people) and
 [skill/shamshir-edit/SKILL.md](skill/shamshir-edit/SKILL.md) (for AI agents:
 `cp -r skill/shamshir-edit ~/.claude/skills/`).
 
+- **Google Flow (optional):** `flow_generate_video` makes AI clips (Veo) with *your own* Google
+  account and credits through your logged-in Chrome; the clip then goes into the edit.
+  `pip install -e ".[flow]"`, then ask the agent to run `flow_setup`. Shamshir never approves
+  credit dialogs and never solves CAPTCHAs. Automating the Flow website may be against
+  Google's terms; use it at your own risk. Rewritten from ideas in
+  [google-flow-mcp](https://github.com/vynnlee/google-flow-mcp) (MIT).
+
 Rendered clip segments are cached, so a small change to the edit list renders fast.
 
 ## Install

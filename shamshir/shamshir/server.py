@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+import inspect
 import json
 import os
 import time
@@ -9,8 +11,9 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import Image, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
-from . import __version__, analyze, audio, autoedit, captions, effects, ff, qa, render, sfx, text
+from . import __version__, analyze, audio, autoedit, captions, effects, ff, flow, qa, render, sfx, text
 
 HOME = Path(os.environ.get("SHAMSHIR_HOME", Path.home() / "shamshir_projects")).expanduser()
 
@@ -31,6 +34,35 @@ global_effects use output time. Text supports Persian/Arabic (Vazirmatn font is 
 """
 
 mcp = MCPServer("shamshir", instructions=INSTRUCTIONS, version=__version__)
+_tool = mcp.tool
+
+
+def _tool_with_errors():
+    """Like mcp.tool(), but the agent sees the real error text (MCP hides unexpected errors)."""
+    def deco(fn):
+        if inspect.iscoroutinefunction(fn):
+            @functools.wraps(fn)
+            async def wrapped(*a, **k):
+                try:
+                    return await fn(*a, **k)
+                except ToolError:
+                    raise
+                except Exception as e:
+                    raise ToolError(f"{type(e).__name__}: {e}") from e
+        else:
+            @functools.wraps(fn)
+            def wrapped(*a, **k):
+                try:
+                    return fn(*a, **k)
+                except ToolError:
+                    raise
+                except Exception as e:
+                    raise ToolError(f"{type(e).__name__}: {e}") from e
+        return _tool()(wrapped)
+    return deco
+
+
+mcp.tool = _tool_with_errors
 
 
 def _project(name: str | None) -> Path:
@@ -255,6 +287,42 @@ def make_caption_texts(segments: list[dict], style: str = "subtitle", pos: str =
 def make_sfx(kind: str, duration: float | None = None, project: str | None = None) -> dict:
     """Make a sound effect file (whoosh, hit, riser, click, glitch, boom, swish)."""
     return {"path": str(sfx.make(kind, _project(project), duration))}
+
+
+def _with_shot(r: dict) -> list:
+    shot = r.pop("_screenshot", None)
+    return ([Image(data=shot, format="jpeg")] if shot else []) + [json.dumps(r, ensure_ascii=False)]
+
+
+@mcp.tool()
+def flow_setup(port: int = 9222) -> dict:
+    """How to connect Google Flow (AI video generation with your own Google account and credits):
+    start a separate Chrome with remote debugging, log in, open a Flow project."""
+    return flow.setup_help(port)
+
+
+@mcp.tool()
+async def flow_status(port: int = 9222) -> list:
+    """Check the connection to the Flow tab in your Chrome and show a screenshot of it."""
+    return _with_shot(await flow.status(port))
+
+
+@mcp.tool()
+async def flow_generate_video(prompt: str, confirm: bool = False, port: int = 9222, direct: bool = True,
+                              timeout: float = 600, project: str | None = None) -> list:
+    """Generate a video clip with Google Flow (Veo) in your logged-in Chrome.
+    confirm=false (default) only types the prompt and returns a screenshot; no credits are spent.
+    Ask the user, then call with confirm=true to submit; the new video is downloaded to the
+    project folder and can be used as a clip `src` in an EDL. Shamshir never approves credit
+    dialogs; if Flow shows one, the user approves it in the browser."""
+    out = _project(project) / "flow"
+    return _with_shot(await flow.generate_video(prompt, out, confirm, port, direct, timeout))
+
+
+@mcp.tool()
+async def flow_collect(port: int = 9222, limit: int = 4, project: str | None = None) -> dict:
+    """Download the newest videos visible in the Flow tab (use after a flow_generate_video timeout)."""
+    return await flow.collect(_project(project) / "flow", port, limit)
 
 
 def main() -> None:
