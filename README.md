@@ -56,7 +56,7 @@ Complete beginners: follow [INSTALL.md](INSTALL.md) (English) or [INSTALL_FA.md]
 | `auto_edit` | Beat-synced edit in one call, in a preset style (`hype`, `phonk`, `cinematic`, `smooth`, `glitch`) or in the style of a reference video |
 | `render_edl` | Full control with a JSON edit list; preview at half size first; unchanged clips are cached, so changes render fast |
 | `speech_segments` | Finds the parts with speech for jump cuts (pause removal) |
-| `transcribe` + `make_caption_texts` | Speech to text with word times, karaoke-style captions |
+| `transcribe` -> `fix_transcript` -> `make_caption_texts` | Captions in 3 steps: Whisper (large-v3-turbo) writes the text with word times and marks unsure words; **the AI reads and corrects it** (misheard words, names, Persian spelling), times are re-aligned; then karaoke captions that also follow jump cuts |
 | `make_sfx` | Generated sound effects: whoosh, hit, riser, click, glitch, boom, swish |
 | `camera_preset` | Smooth ready-made camera moves: 360 spin with stops, sway, whip, zoom pulse, tilt swing |
 

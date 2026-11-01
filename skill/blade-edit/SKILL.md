@@ -33,7 +33,7 @@ Never deliver half versions. Before any render:
 | Slow motion in one moment | clip `ramp` |
 | Colour of the reference | `grade` (name or `.cube`) |
 | Glitch / RGB look | effects `glitch`, `rgb_split` |
-| Talking video | `speech_segments` -> jump cuts; `transcribe` -> `make_caption_texts` |
+| Talking video | `speech_segments` -> jump cuts; captions: `transcribe` -> review + `fix_transcript` -> `make_caption_texts(keep=...)` |
 | Logo, PiP, emoji sticker | `overlays` |
 | A shot the user does not have | `flow_generate_video` (dry run first; ask before confirm=true) |
 | Checking | preview `view_frames`, final `quality_check` + `compare_videos` |
@@ -68,3 +68,19 @@ reference. Report the path, what matches, and the honest limits.
   `<div dir="rtl">`, never `<Text>`.
 - Big rotations zoom in to hide the corners; for 9:16 a 90-degree turn crops a lot - use
   Kinetograph for a full-frame spin if that matters.
+
+## Captions: tool first, then your review
+
+The recogniser (Whisper) makes mistakes, mostly in Persian/Arabic, with accents and noise. You
+are the editor of its text:
+1. `transcribe(path, language="fa", prompt="<names, brands, topic words>")`. Read `review`: one
+   numbered line per segment, unsure words in [[ ]].
+2. Correct each wrong line from the meaning and the context: misheard words, names, spelling
+   (Persian: ی and ک, half-spaces in می‌شود), punctuation. Keep the spoken words and their order -
+   captions must match the voice; do not summarise, translate or "improve" the style. Remove
+   lines that are only noise or invented text (""). Call `fix_transcript` once with all fixes;
+   word times are re-aligned to your words.
+3. If a word is still unclear, ask the user once (list the line numbers) instead of guessing.
+4. `make_caption_texts(transcript_path=<fixed file>, keep=<speech_segments keep pairs, when the
+   video is jump-cut>)` and put its `texts_file` in the EDL `texts` list.
+
