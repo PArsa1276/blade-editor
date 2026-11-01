@@ -13,7 +13,7 @@ FONTS_DIR = Path(__file__).parent / "fonts"
 
 # name: (font, size at 1080 short side, primary, outline colour, outline px, shadow px, bold, spacing)
 STYLES = {
-    "impact":   ("Vazirmatn Black", 120, "#FFFFFF", "#000000", 6, 0, 0, 1),
+    "impact":   ("Vazirmatn Black", 140, "#FFFFFF", "#000000", 6, 0, 0, 1),
     "subtitle": ("Vazirmatn", 64, "#FFFFFF", "#000000", 4, 2, 1, 0),
     "minimal":  ("Vazirmatn", 52, "#FFFFFF", "#000000", 0, 3, 0, 2),
     "neon":     ("Vazirmatn Black", 104, "#FFFFFF", "#00E5FF", 5, 0, 0, 2),

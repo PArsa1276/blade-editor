@@ -56,6 +56,11 @@ overlay; a Flow clip is just another `src`.
 issues; with a reference, `compare_videos` cuts/s and flashes/s within about 30% of the
 reference. Report the path, what matches, and the honest limits.
 
+- Kinetograph needs no setup: `motion_graphic` installs it by itself on first use (needs Node.js).
+- Google Flow: through the Blade Bridge extension (loaded once from ~/.blade-editor/chrome-extension);
+  Blade opens the Flow tab itself. If `flow_status` says it is not connected, give the user
+  `flow_setup` steps.
+
 ## Gotchas
 
 - Clip effect times are from the clip start; `texts`, `sfx`, `overlays`, `global_effects` use output time.

@@ -96,4 +96,8 @@ Do you have the blade-editor tools? Call start_here.
 You will see: Claude says it has the Blade Editor tools and asks if you want this guide.
 (Terminal users can also type `/mcp`: the list shows **blade-editor** and **connected**.)
 
+Optional, for Google Flow clips: in Chrome open `chrome://extensions`, turn on **Developer mode**,
+click **Load unpacked** and choose the folder `.blade-editor/chrome-extension` in your home folder
+(Windows: `C:\Users\<you>\.blade-editor\chrome-extension`). You do this only once.
+
 Installation is complete. You never need to do Part 1 again.

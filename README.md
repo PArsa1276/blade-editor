@@ -84,7 +84,7 @@ Inside an edit list:
 ### ✨ Optional extras
 | Tool | What it does |
 |---|---|
-| `flow_setup`, `flow_status`, `flow_generate_video`, `flow_collect` | New AI clips with **Google Flow (Veo)** in **your own Chrome** (Chrome 144+: turn on `chrome://inspect/#remote-debugging`, click Allow), with your own login and credits. Dry run first (no credits); never approves credit dialogs; never solves CAPTCHAs |
+| `flow_setup`, `flow_status`, `flow_generate_video`, `flow_collect` | New AI clips with **Google Flow (Veo)** in **your own Chrome**, with your own login and credits, through the bundled **Blade Bridge** extension (load it once; no settings, no prompts; Blade opens the Flow tab itself). Only that extension can connect to Blade (checked by its fixed ID); it can act only on `labs.google`. Fallback: `chrome://inspect/#remote-debugging`. Dry run first (no credits); never approves credit dialogs; never solves CAPTCHAs |
 | `motion_graphic` | After-Effects-style titles, graphics and **3D turns of your clips** with [Kinetograph](https://github.com/0xS4N4TG/kinetograph), rendered to a **transparent** clip (exact alpha from a black/white double render) and placed on the edit. Templates: `examples/kinetograph-title`, `examples/kinetograph-spin3d` |
 
 ### 🧭 Built for agents
@@ -113,8 +113,9 @@ Inside an edit list:
 ## Requirements
 
 - Python 3.10+ and ffmpeg (the installers add them when they are missing).
-- Optional: `faster-whisper` for captions (installed by the installers), Playwright for Google
-  Flow (`pip install ".[flow]"`), Node.js + Kinetograph for motion graphics (a GPU makes it fast).
+- Optional: `faster-whisper` for captions and Node.js + Kinetograph for motion graphics - the
+  installers add both, and Kinetograph also installs itself on first use (a GPU makes it fast).
+  Playwright for Google Flow: `pip install ".[flow]"`.
 
 Manual install:
 ```bash
@@ -143,4 +144,4 @@ pip install ".[test]" && pytest -q
 - Font: Vazirmatn, SIL Open Font License 1.1 (`licenses/`).
 - Emoji fallback: Twemoji (CC-BY 4.0), downloaded only when no colour-emoji font is on the computer.
 - Ideas for the Google Flow part from [google-flow-mcp](https://github.com/vynnlee/google-flow-mcp) (MIT), rewritten.
-- Kinetograph is a separate install under its own PolyForm Small Business licence.
+- Kinetograph is downloaded from npm into `~/.blade-editor/kinetograph` (not bundled); it has its own PolyForm Small Business licence.

@@ -136,10 +136,8 @@ def normalize(edl: dict) -> dict:
                 c["_src_dur"] = float(c["duration"]) * c["speed"]
             else:
                 c["_src_dur"] = info["duration"] - c["in"]
-            if c["in"] + c["_src_dur"] > info["duration"] + 0.05:
-                raise ValueError(f"clip {i}: in+length ({c['in'] + c['_src_dur']:.2f}s) is past the "
-                                 f"end of {Path(src).name} ({info['duration']:.2f}s).")
             c["_has_audio"] = bool(info["audio"])
+            c["_file_dur"] = info["duration"]
         if c["_src_dur"] <= 0.02:
             raise ValueError(f"clip {i}: the clip length must be positive.")
         if c.get("ramp"):
@@ -151,6 +149,12 @@ def normalize(edl: dict) -> dict:
             c["_dur"] = sum(a / b for a, b in ramp)
         else:
             c["_dur"] = c["_src_dur"] / c["speed"]
+        # Checked after the ramp length is known (a ramp longer than the file froze the picture).
+        if not c["_image"] and c["in"] + c["_src_dur"] > c["_file_dur"] + 0.05:
+            raise ValueError(f"clip {i}: in+length ({c['in'] + c['_src_dur']:.2f}s) is past the end of "
+                             f"{Path(src).name} ({c['_file_dur']:.2f}s). Shorten out/duration or the ramp "
+                             f"pieces (their source seconds must add up to at most "
+                             f"{c['_file_dur'] - c['in']:.2f}s).")
         if c.get("focus") == "auto" and not c["_image"]:
             c["focus"] = _auto_focus(src, c["in"], c["_src_dur"])
         c.setdefault("effects", [])
@@ -174,6 +178,15 @@ def normalize(edl: dict) -> dict:
         elif t == "whip":
             c["effects"] += [{"type": "blur", "at": 0, "dur": 0.12, "amount": 18},
                              {"type": "shake", "at": 0, "dur": 0.2, "amount": 30}]
+    # Put every clip end on a whole frame of the output timeline. Rounding each clip on its own
+    # lost ~0.5 frame per clip, so the picture drifted ahead of the music over many short cuts.
+    fps, exact, frames = float(out["fps"]), 0.0, 0
+    for c in clips:
+        exact += c["_dur"]
+        end = round(exact * fps)
+        c["_dur"] = max(1, end - frames) / fps
+        frames = end
+        c["transition"]["dur"] = round(float(c["transition"]["dur"]) * fps) / fps
     edl = dict(edl)
     edl["output"], edl["clips"] = out, clips
     edl.setdefault("texts", [])
@@ -251,7 +264,7 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
             post += camera.camera_chain(e["keys"], W, H, e.get("ease", "smooth"))
     post += effects.motion_chain(scaled, W, H, D)
     post += effects.look_chain(scaled, W, H, D)
-    post += ["tpad=stop_mode=clone:stop_duration=1", f"trim=duration={D:.4f}",
+    post += [f"tpad=stop_mode=clone:stop_duration={D:.4f}", f"trim=duration={D:.4f}",
              "setpts=PTS-STARTPTS", "format=yuv420p"]
     graph.append(f"[v1]{','.join(post)}[vout]")
 
@@ -413,7 +426,7 @@ def render(edl: dict, work_dir: str | Path, preview: bool = False) -> dict:
 
     final = Path(out["path"])
     if preview:
-        final = work / f"preview_{final.stem}.mp4"
+        final = final.with_name(f"{final.stem}_preview.mp4")
     final.parent.mkdir(parents=True, exist_ok=True)
     venc = (["-c:v", "libx264", "-preset", "ultrafast", "-crf", "26"] if preview else
             ["-c:v", "libx264", "-preset", out["preset"], "-crf", str(out["crf"]),

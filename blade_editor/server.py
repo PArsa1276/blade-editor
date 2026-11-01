@@ -411,11 +411,12 @@ def compare_videos(reference: str, output: str, count: int = 8, project: str | N
 
 
 @mcp.tool()
-def transcribe(path: str, language: str | None = None, model: str = "small",
+def transcribe(path: str, language: str | None = None, model: str = "small", device: str = "auto",
                project: str | None = None) -> dict:
     """Speech to text with word times (needs faster-whisper). Use the segments with
-    make_caption_texts to get karaoke-style captions for an EDL."""
-    r = captions.transcribe(_abs(path), language, model)
+    make_caption_texts to get karaoke-style captions for an EDL. device: auto (falls back to the
+    CPU when the GPU's CUDA libraries are missing), cpu or cuda."""
+    r = captions.transcribe(_abs(path), language, model, device)
     r["saved_json"] = _save(_project(project), f"transcript_{Path(path).stem}", r)
     return r
 
@@ -460,9 +461,9 @@ def _with_shot(r: dict) -> list:
 @mcp.tool()
 def flow_setup(port: int = 0) -> dict:
     """How to connect Google Flow (AI video with your own Google account and credits) through
-    YOUR normal Chrome: turn on chrome://inspect/#remote-debugging, open a Flow project, Allow.
-    port=0 (default) finds your Chrome by itself; a number connects to a Chrome started with
-    --remote-debugging-port."""
+    YOUR normal Chrome: install the Blade Bridge extension once (no other setting); Blade opens the
+    Flow tab itself. Fallback: chrome://inspect/#remote-debugging. A port number connects to a
+    Chrome started with --remote-debugging-port."""
     return flow.setup_help(port)
 
 

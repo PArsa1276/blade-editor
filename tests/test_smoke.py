@@ -164,3 +164,24 @@ def test_repeat_analysis_is_refused(media):
     assert "cuts" in server.analyze_video(p)
     assert "cuts" in server.analyze_video(p, sensitivity="low")
     assert server.analyze_video(p).get("limit_reached")
+
+
+def test_too_long_ramp_is_refused_and_many_short_clips_keep_sync(media, tmp_path):
+    with pytest.raises(ValueError, match="past the end"):
+        render.render({"output": {"path": str(tmp_path / "x.mp4"), "width": 320, "height": 568},
+                       "clips": [{"src": str(media / "src.mp4"), "in": 8.5, "ramp": [[1, 1], [1, 0.5]]}]},
+                      tmp_path / "w")
+    clips = [{"src": str(media / "src.mp4"), "in": 0.1 * i, "out": 0.1 * i + 0.487} for i in range(24)]
+    out = tmp_path / "sync.mp4"
+    render.render({"output": {"path": str(out), "width": 320, "height": 568}, "clips": clips,
+                   "audio": {"music": str(media / "beat.wav")}}, tmp_path / "w")
+    lens = qa.check(str(out))["stream_seconds"]
+    assert abs(lens["video"] - lens["audio"]) < 0.05 and abs(lens["video"] - 24 * 0.487) < 0.05
+
+
+def test_short_music_is_looped_to_the_asked_length(media, tmp_path):
+    short = tmp_path / "short.wav"
+    _ff("-i", str(media / "beat.wav"), "-t", "5", str(short))
+    edl = autoedit.build_edl([str(media / "src.mp4")], str(short), str(tmp_path / "a.mp4"), "hype",
+                             duration=9, width=320, height=568)
+    assert edl["_meta"]["duration"] == 9 and edl["_meta"]["warnings"]
