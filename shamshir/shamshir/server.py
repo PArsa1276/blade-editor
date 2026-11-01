@@ -20,6 +20,11 @@ HOME = Path(os.environ.get("SHAMSHIR_HOME", Path.home() / "shamshir_projects")).
 INSTRUCTIONS = """\
 Shamshir edits video locally with ffmpeg. It is free and has no credit limits.
 
+FIRST: call `start_here` once per conversation before other Shamshir tools. If it says
+first_use=true, ask the user, in the language they write in, whether they want the user guide.
+If they say yes, call `guide` and give them the whole guide translated into their language
+(keep commands, file names and tool names unchanged).
+
 Recommended loop for an edit:
 1. probe_media / analyze_video on every input. Use view_frames to SEE the footage; do not guess.
 2. With a reference edit: style_from_reference (measures cut rhythm, flashes, shake, colour)
@@ -84,6 +89,32 @@ def _save(project: Path, stem: str, data: Any) -> str:
     out = project / f"{stem}_{time.strftime('%Y%m%d_%H%M%S')}.json"
     out.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     return str(out)
+
+
+GUIDE = Path(__file__).with_name("GUIDE.md")
+FIRST_USE_MARK = HOME / ".welcomed"
+
+
+@mcp.tool()
+def start_here() -> dict:
+    """Call once per conversation before other Shamshir tools. Says if this is the user's first
+    use of Shamshir; then ask the user (in their language) if they want the guide."""
+    first = not FIRST_USE_MARK.exists()
+    if first:
+        HOME.mkdir(parents=True, exist_ok=True)
+        FIRST_USE_MARK.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+    return {"first_use": first, "version": __version__,
+            "next": ("Ask the user, in their own language, if they want the Shamshir user guide. "
+                     "If yes, call `guide`." if first else
+                     "Continue with the user's request. The guide is available with `guide`.")}
+
+
+@mcp.tool()
+def guide() -> dict:
+    """The Shamshir user guide (in English). Translate the whole guide into the language the
+    user writes in before you give it to them; keep commands, file names and tool names as they are."""
+    return {"guide_markdown": GUIDE.read_text(encoding="utf-8"),
+            "instruction": "Translate everything into the user's language; do not shorten it."}
 
 
 @mcp.tool()

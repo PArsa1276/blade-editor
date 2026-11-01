@@ -23,4 +23,4 @@ shamshir = "shamshir.server:main"
 packages = ["shamshir"]
 
 [tool.setuptools.package-data]
-shamshir = ["fonts/*.ttf"]
+shamshir = ["fonts/*.ttf", "GUIDE.md"]

@@ -23,7 +23,8 @@ others) edit video on your own computer. It uses ffmpeg. It is free and has no c
 - **Quality check:** black frames, frozen picture, silence, loudness (−14 LUFS target), peak;
   `compare_videos` puts reference and output side by side with a style table.
 
-Guides: [GUIDE_FA.md](GUIDE_FA.md) (Persian, for people) and
+Guides: [shamshir/GUIDE.md](shamshir/GUIDE.md) (English, for people; the agent offers it on
+first use and translates it into the user's language), [GUIDE_FA.md](GUIDE_FA.md) (Persian) and
 [skill/shamshir-edit/SKILL.md](skill/shamshir-edit/SKILL.md) (for AI agents:
 `cp -r skill/shamshir-edit ~/.claude/skills/`).
 

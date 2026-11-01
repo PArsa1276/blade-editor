@@ -5,7 +5,9 @@ description: Edit videos with the Shamshir MCP server (local, free ffmpeg editor
 
 # Shamshir video editing
 
-Tools come from the `shamshir` MCP server. Call `capabilities` once per chat for the exact
+Tools come from the `shamshir` MCP server. Call `start_here` first; on first use, ask the user
+(in their language) if they want the guide, and if yes give the `guide` text translated into
+their language. Call `capabilities` once per chat for the exact
 EDL format and names; do not guess effect, grade or style names.
 
 ## Rules that make good edits
