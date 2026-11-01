@@ -17,7 +17,15 @@ others) edit video on your own computer. It uses ffmpeg. It is free and has no c
 - **Text:** 7 styles and 8 animations. Persian and Arabic text is shaped correctly
   (the Vazirmatn font is included).
 - **Captions:** `transcribe` (faster-whisper) and `make_caption_texts` for karaoke captions.
-- **Quality check:** black frames, frozen picture, silence, loudness (−14 LUFS target), peak.
+- **Speed ramps, overlays, LUTs:** velocity edits (`ramp`), logo/PiP overlays, `.cube` LUTs,
+  auto subject-following crop (`focus: "auto"`), file size cap (`max_mb`).
+- **Jump cuts:** `speech_segments` finds the parts to keep in talking videos.
+- **Quality check:** black frames, frozen picture, silence, loudness (−14 LUFS target), peak;
+  `compare_videos` puts reference and output side by side with a style table.
+
+Guides: [GUIDE_FA.md](GUIDE_FA.md) (Persian, for people) and
+[skill/shamshir-edit/SKILL.md](skill/shamshir-edit/SKILL.md) (for AI agents:
+`cp -r skill/shamshir-edit ~/.claude/skills/`).
 
 Rendered clip segments are cached, so a small change to the edit list renders fast.
 

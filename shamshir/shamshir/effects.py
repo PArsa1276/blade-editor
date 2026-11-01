@@ -63,6 +63,7 @@ EFFECT_DOCS = {
     "letterbox": "Black bars. Keys: amount(0.12 of height).",
     "invert": "Invert colors inside a window. Keys: at, dur(0.1).",
     "strobe": "Brightness strobe at a rate. Keys: at, dur, rate(8 per s), amount(0.6).",
+    "motion_blur": "Blend neighbour frames (use with fast zoom/shake). Keys: at, dur(0.3), amount(frames, 4).",
 }
 
 
@@ -137,6 +138,8 @@ def look_chain(effects: list[dict], width: int, height: int, span: float) -> lis
         elif typ == "blur":
             dur, amt = _f(e, "dur", 0.3), max(1, int(_f(e, "amount", 8.0)))
             out.append(f"gblur=sigma={amt}:enable='{_win(at, dur)}'")
+        elif typ == "motion_blur":
+            out.append(f"tmix=frames={max(2, int(_f(e, 'amount', 4)))}:enable='{_win(at, _f(e, 'dur', 0.3))}'")
         elif typ == "invert":
             out.append(f"negate=enable='{_win(at, _f(e, 'dur', 0.1))}'")
         elif typ == "grain":
@@ -155,6 +158,8 @@ def look_chain(effects: list[dict], width: int, height: int, span: float) -> lis
 def grade(name: str | None) -> list[str]:
     if not name:
         return []
+    if name.lower().endswith(".cube"):
+        return [f"lut3d=file='{name.replace(chr(92), '/').replace(':', chr(92) + ':')}'"]
     if name not in GRADES:
         raise ValueError(f"Unknown grade '{name}'. Use one of: {', '.join(GRADES)}")
     g = GRADES[name]

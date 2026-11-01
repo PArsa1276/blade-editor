@@ -69,7 +69,7 @@ def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True) 
     is_cut = ((h_score > np.maximum(0.2, 2.5 * h_med)) |
               ((h_score > 0.1) & (d_ratio > 3.0)) |
               ((diff - d_med > 25) & (d_ratio > 2.5)))
-    cand = [i for i in range(1, n) if is_cut[i]]
+    cand = [i for i in range(3, n) if is_cut[i]]  # frames 1-2: decoder/filter start-up noise
     min_gap = max(2, int(fps * 0.08))
     cut_idx: list[int] = []
     for i in cand:

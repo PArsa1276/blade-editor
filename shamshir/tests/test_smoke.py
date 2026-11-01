@@ -69,3 +69,24 @@ def test_auto_edit_cuts_on_beat(media, tmp_path):
     assert abs(ff.probe(out)["duration"] - 6) < 0.15
     r = analyze.analyze_video(str(out))
     assert r["summary"].get("cuts_on_beat_share", 0) >= 0.5
+
+
+def test_ramp_overlay_lut_and_speech(media, tmp_path):
+    lut = tmp_path / "id.cube"
+    lut.write_text("LUT_3D_SIZE 2\n" + "".join(f"{r} {g} {b}\n" for b in (0, 1) for g in (0, 1) for r in (0, 1)))
+    out = tmp_path / "ramp.mp4"
+    edl = {
+        "output": {"path": str(out), "width": 360, "height": 640, "max_mb": 2},
+        "clips": [{"src": str(media / "src.mp4"), "in": 0, "ramp": [[1, 1.0], [1, 0.5], [2, 2.0]],
+                   "focus": "auto", "grade": str(lut)}],
+        "overlays": [{"src": str(media / "src.mp4"), "start": 0.5, "end": 2, "width": 0.3}],
+        "audio": {"music": str(media / "beat.wav")},
+    }
+    r = render.render(edl, tmp_path / "work")
+    assert abs(r["duration"] - (1 + 2 + 1)) < 0.1
+    assert r["size_mb"] < 2
+    bursts = tmp_path / "bursts.wav"
+    _ff("-f", "lavfi", "-i", "sine=f=300:d=0.4,apad=pad_dur=0.8", "-t", "1.2", str(tmp_path / "b.wav"))
+    _ff("-stream_loop", "4", "-i", str(tmp_path / "b.wav"), str(bursts))
+    seg = qa.speech_segments(str(bursts))
+    assert len(seg["keep"]) == 5  # one kept part per tone burst

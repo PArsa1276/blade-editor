@@ -11,6 +11,8 @@ import json
 import time
 from pathlib import Path
 
+import numpy as np
+
 from . import effects, ff, sfx, text
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -46,6 +48,19 @@ def _fit_graph(fit: str, W: int, H: int, focus: tuple[float, float], src: str, d
         return (f"[{src}]split[fb1][fb2];[fb1]{cover},gblur=sigma=40,eq=brightness=-0.12[fbg];"
                 f"[fb2]{contain}[ffg];[fbg][ffg]overlay=(W-w)/2:(H-h)/2,setsar=1[{dst}]")
     raise ValueError(f"Unknown fit '{fit}'. Use cover, contain or blur.")
+
+
+def _auto_focus(src: str, start: float, length: float) -> list[float]:
+    """Crop centre that follows where the picture moves (static for the clip)."""
+    frames, _ = ff.read_gray_frames(src, width=160, fps=6, start=start, duration=length)
+    if len(frames) < 2:
+        return [0.5, 0.5]
+    m = np.abs(np.diff(frames.astype(np.float32), axis=0)).mean(axis=0)
+    if m.sum() < 1e-3:
+        return [0.5, 0.5]
+    ys, xs = np.indices(m.shape)
+    return [round(float((m * xs).sum() / m.sum() / (m.shape[1] - 1)), 3),
+            round(float((m * ys).sum() / m.sum() / (m.shape[0] - 1)), 3)]
 
 
 def normalize(edl: dict) -> dict:
@@ -98,7 +113,17 @@ def normalize(edl: dict) -> dict:
             c["_has_audio"] = bool(info["audio"])
         if c["_src_dur"] <= 0.02:
             raise ValueError(f"clip {i}: the clip length must be positive.")
-        c["_dur"] = c["_src_dur"] / c["speed"]
+        if c.get("ramp"):
+            # ramp: [[source_seconds, speed], ...] played in order from `in`.
+            ramp = [(float(a), float(b)) for a, b in c["ramp"]]
+            if any(a <= 0 or b <= 0 for a, b in ramp) or c["_image"]:
+                raise ValueError(f"clip {i}: ramp needs a video and positive [seconds, speed] pairs.")
+            c["_src_dur"] = sum(a for a, _ in ramp)
+            c["_dur"] = sum(a / b for a, b in ramp)
+        else:
+            c["_dur"] = c["_src_dur"] / c["speed"]
+        if c.get("focus") == "auto" and not c["_image"]:
+            c["focus"] = _auto_focus(src, c["in"], c["_src_dur"])
         c.setdefault("effects", [])
         effects.validate(c["effects"])
         tr = c.get("transition") or {"type": "cut"}
@@ -176,6 +201,14 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
         v.append(f"setpts=PTS/{c['speed']:.5f}")
     v.append(f"fps={fps}")
     graph = [f"[0:v]{','.join(v)}[v0]"]
+    if c.get("ramp"):
+        n, t, parts = len(c["ramp"]), 0.0, []
+        graph = [f"[0:v]setpts=PTS-STARTPTS,split={n}" + "".join(f"[r{k}]" for k in range(n))]
+        for k, (ln, sp) in enumerate(c["ramp"]):
+            graph.append(f"[r{k}]trim=start={t:.4f}:duration={float(ln):.4f},setpts=(PTS-STARTPTS)/{float(sp):.5f}[q{k}]")
+            parts.append(f"[q{k}]")
+            t += float(ln)
+        graph.append(f"{''.join(parts)}concat=n={n}:v=1:a=0,fps={fps}[v0]")
     fit = c.get("fit") or out["fit"]
     focus = tuple(c.get("focus") or (0.5, 0.5))
     graph.append(_fit_graph(fit, W, H, focus, "v0", "v1"))
@@ -187,7 +220,8 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
              "setpts=PTS-STARTPTS", "format=yuv420p"]
     graph.append(f"[v1]{','.join(post)}[vout]")
 
-    use_audio = c["_has_audio"] and not c.get("mute")
+    # shortcut: ramped clips are silent; mix clip audio per piece if a talking ramp is needed.
+    use_audio = c["_has_audio"] and not c.get("mute") and not c.get("ramp")
     if use_audio:
         a = ["asetpts=PTS-STARTPTS"]
         if c.get("reverse"):
@@ -248,6 +282,22 @@ def render(edl: dict, work_dir: str | Path, preview: bool = False) -> dict:
     vpost += effects.grade(out.get("global_grade"))
     vpost += effects.motion_chain(edl["global_effects"], W, H, total)
     vpost += effects.look_chain(edl["global_effects"], W, H, total)
+    vpost.append("format=yuv420p")
+    graph.append(f"[{cur_v}]{','.join(vpost)}[vbase]")
+    cur_v, vpost = "vbase", []
+    for j, ov in enumerate(edl.get("overlays") or []):
+        # {src, start, end, x, y (0..1 centre), width (fraction of frame width), opacity}
+        osrc = _check_src(ov["src"])
+        st, en = float(ov.get("start", 0)), float(ov.get("end", total))
+        args += (["-loop", "1", "-framerate", str(out["fps"])] if Path(osrc).suffix.lower() in IMAGE_EXT else []) + ["-i", osrc]
+        ow = int(W * float(ov.get("width", 0.3))) // 2 * 2
+        x, y = float(ov.get("x", 0.5)), float(ov.get("y", 0.5))
+        idx = _input_count(args) - 1
+        graph.append(f"[{idx}:v]scale={ow}:-2,format=rgba,colorchannelmixer=aa={float(ov.get('opacity', 1)):.3f},"
+                     f"fade=t=in:st=0:d=0.15:alpha=1,setpts=PTS-STARTPTS+{st:.4f}/TB[ov{j}]")
+        graph.append(f"[{cur_v}][ov{j}]overlay=x='{x:.3f}*W-w/2':y='{y:.3f}*H-h/2':eof_action=pass:"
+                     f"enable='between(t,{st:.4f},{en:.4f})'[vo{j}]")
+        cur_v = f"vo{j}"
     if edl["texts"]:
         ass = text.write_ass(edl["texts"], W, H, work / ("preview.ass" if preview else "final.ass"))
         vpost.append(f"ass=filename='{_fesc(ass)}':fontsdir='{_fesc(text.FONTS_DIR)}':shaping=complex")
@@ -257,7 +307,7 @@ def render(edl: dict, work_dir: str | Path, preview: bool = False) -> dict:
     # Audio mix.
     aud = edl["audio"] or {}
     mix_inputs: list[str] = []
-    n_in = len(segs)
+    n_in = _input_count(args)
     keep_clip = aud.get("keep_clip_audio", not aud.get("music"))
     clip_vol = _num(aud.get("clip_audio_volume"), 1.0 if not aud.get("music") else 0.35)
     graph.append(f"[{cur_a}]volume={clip_vol if keep_clip else 0:.3f},asetpts=PTS-STARTPTS[aclip]")
@@ -304,6 +354,10 @@ def render(edl: dict, work_dir: str | Path, preview: bool = False) -> dict:
     venc = (["-c:v", "libx264", "-preset", "ultrafast", "-crf", "26"] if preview else
             ["-c:v", "libx264", "-preset", out["preset"], "-crf", str(out["crf"]),
              "-profile:v", "high", "-pix_fmt", "yuv420p"])
+    if out.get("max_mb") and not preview:
+        # Cap the file size (platform upload limits): CRF quality, but never above this bitrate.
+        kbps = max(300, int(float(out["max_mb"]) * 8000 * 0.93 / total) - 192)
+        venc += ["-maxrate", f"{kbps}k", "-bufsize", f"{kbps * 2}k"]
     graph_file = work / ("preview_graph.txt" if preview else "final_graph.txt")
     graph_file.write_text(";\n".join(graph), encoding="utf-8")
     ff.run([*args, "-filter_complex_script", str(graph_file), "-map", "[vfinal]", "-map", "[afinal]",
@@ -314,6 +368,16 @@ def render(edl: dict, work_dir: str | Path, preview: bool = False) -> dict:
             "width": info["video"]["width"], "height": info["video"]["height"],
             "size_mb": round(info["size_bytes"] / 1e6, 2), "timeline": rows,
             "render_seconds": round(time.time() - t0, 1), "preview": preview}
+
+
+def _input_count(args: list[str]) -> int:
+    return sum(1 for a in args if a == "-i")
+
+
+def _check_src(src: str) -> str:
+    if not Path(src).exists():
+        raise ValueError(f"File not found: {src}")
+    return src
 
 
 def _fesc(p: str | Path) -> str:

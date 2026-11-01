@@ -35,3 +35,20 @@ def check(path: str) -> dict:
     return {"file": info, "black": black, "freeze_starts": freeze, "silence_starts": silence,
             "loudness_lufs": loud, "peak_dbfs": tp, "issues": issues, "ok": not issues,
             "aspect": f"{v.get('width')}x{v.get('height')}"}
+
+
+def speech_segments(path: str, noise_db: float = -35.0, min_silence: float = 0.35,
+                    pad: float = 0.08) -> dict:
+    """Parts of the file with sound, for jump-cut (silence removal) edits."""
+    dur = ff.probe(path)["duration"]
+    log = ff.run(["-i", path, "-vn", "-af", f"silencedetect=n={noise_db}dB:d={min_silence}", "-f", "null", "-"])
+    starts = [float(x) for x in re.findall(r"silence_start: (-?[\d.]+)", log)]
+    ends = [float(x) for x in re.findall(r"silence_end: ([\d.]+)", log)]
+    keep, t = [], 0.0
+    for s, e in zip(starts, ends + [dur] * (len(starts) - len(ends))):
+        if s - t > 0.05:
+            keep.append([round(max(0.0, t - pad), 3), round(min(dur, s + pad), 3)])
+        t = e
+    if dur - t > 0.05:
+        keep.append([round(max(0.0, t - pad), 3), round(dur, 3)])
+    return {"duration": dur, "keep": keep, "kept_seconds": round(sum(b - a for a, b in keep), 3)}

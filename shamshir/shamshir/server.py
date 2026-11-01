@@ -24,7 +24,7 @@ Recommended loop for an edit:
 3. Fast path: auto_edit (beat-synced edit in a preset or reference style).
    Full control: write an EDL (see capabilities) and call render_edl with preview=true first.
 4. view_frames on the preview, fix the EDL, then render_edl with preview=false.
-5. quality_check on the final file. Report the output path to the user.
+5. quality_check on the final file; with a reference, compare_videos too. Report the output path.
 
 All times are seconds. Clip effect times are relative to the clip start; texts, sfx and
 global_effects use output time. Text supports Persian/Arabic (Vazirmatn font is bundled).
@@ -62,14 +62,17 @@ def capabilities() -> dict:
         "version": __version__,
         "projects_dir": str(HOME),
         "edl_format": {
-            "output": "{path, width=1080, height=1920, fps=30, fit='cover'|'contain'|'blur', grade, global_grade, crf=18, preset='medium'}",
-            "clips[]": "{src (video, image, or 'color:#RRGGBB'), in, out | duration, speed=1, reverse=false, "
-                       "fit, focus=[x,y] (0..1 crop centre for cover), mute, volume, grade, effects[], "
+            "output": "{path, width=1080, height=1920, fps=30, fit='cover'|'contain'|'blur', grade, global_grade, crf=18, preset='medium', max_mb}",
+            "clips[]": "{src (video, image, or 'color:#RRGGBB'), in, out | duration, speed=1, "
+                       "ramp=[[source_seconds, speed], ...] (speed ramp, replaces out/speed; silent), reverse=false, "
+                       "fit, focus=[x,y] (0..1 crop centre for cover) or 'auto' (follows motion), mute, volume, "
+                       "grade (name or path to a .cube LUT), effects[], "
                        "transition: 'cut' | 'flash' | 'zoom' | 'glitch' | 'whip' | any ffmpeg xfade name, "
                        "or {type, dur}}",
             "texts[]": "{text, start, end, style, pos ('top','upper','center','lower','bottom','top_left',...) "
                        "or [x,y] fractions, anim, size, color '#RRGGBB', outline_color, font, rotate}",
             "global_effects[]": "same effect objects, times in output seconds",
+            "overlays[]": "{src (png/jpg/video), start, end, x, y (0..1 centre), width (fraction of frame), opacity}",
             "audio": "{music, music_start, volume, fade_in, fade_out, keep_clip_audio, clip_audio_volume, duck, normalize=true (-14 LUFS)}",
             "sfx[]": "{kind | file, at, volume=0.8, dur}",
         },
@@ -186,6 +189,41 @@ def render_edl(edl: dict | None = None, edl_path: str | None = None, preview: bo
 def quality_check(path: str) -> dict:
     """Check a finished video for black frames, frozen picture, silence, loudness (LUFS) and peak."""
     return qa.check(_abs(path))
+
+
+@mcp.tool()
+def speech_segments(path: str, noise_db: float = -35.0, min_silence: float = 0.35) -> dict:
+    """Find the parts with speech/sound so you can cut out the pauses (jump cuts). Use each
+    `keep` pair as one clip {src, in, out} in an EDL."""
+    return qa.speech_segments(_abs(path), noise_db, min_silence)
+
+
+@mcp.tool()
+def compare_videos(reference: str, output: str, count: int = 8, project: str | None = None) -> list:
+    """Put a reference and your output side by side (top row reference, bottom row output) and
+    compare their measured edit style: cuts per second, shot length, flashes, shake, cuts on
+    beat. Use it to check how close the edit is to the reference and what to fix."""
+    proj = _project(project)
+    stamp = int(time.time() * 1000)
+    rows = []
+    for name, p in (("ref", reference), ("out", output)):
+        r = analyze.contact_sheet(_abs(p), str(proj / f"cmp_{name}_{stamp}.jpg"), count=count,
+                                  cols=count, thumb_width=200)
+        rows.append(r["image"])
+    from PIL import Image as PILImage
+
+    a, b = (PILImage.open(x) for x in rows)
+    sheet = PILImage.new("RGB", (max(a.width, b.width), a.height + b.height))
+    sheet.paste(a, (0, 0))
+    sheet.paste(b, (0, a.height))
+    path = proj / f"compare_{stamp}.jpg"
+    sheet.save(path, quality=85)
+    keys = ("cuts_per_second", "median_shot_length", "flashes_per_second", "shake_share",
+            "moving_camera_share", "cuts_on_beat_share", "mean_activity")
+    sa = analyze.analyze_video(_abs(reference))["summary"]
+    sb = analyze.analyze_video(_abs(output))["summary"]
+    table = {k: {"reference": sa.get(k), "output": sb.get(k)} for k in keys}
+    return [Image(path=str(path)), json.dumps({"style": table, "image": str(path)})]
 
 
 @mcp.tool()
