@@ -30,7 +30,7 @@ SPY="$HOME/.blade-editor/venv/bin/python"
 
 say "Connecting Blade Editor to Claude (app and Claude Code)"
 "$SPY" -m blade_editor.server --register
-mkdir -p "$HOME/.claude/skills" && cp -R skill/blade-edit "$HOME/.claude/skills/"
+mkdir -p "$HOME/.claude/skills" && cp -R skill/* "$HOME/.claude/skills/"
 echo "OK: connected"
 
 say "Blade Editor is ready. Quit the Claude app (and Claude Code) completely, then open it again."

@@ -1,62 +1,65 @@
 ---
 name: blade-edit
-description: Edit videos with the Blade Editor MCP server (local, free ffmpeg editor) - beat-synced edits, remixing a reference edit's style onto the user's footage, speed ramps, effects, Persian/Arabic text, karaoke captions, jump cuts, logo/PiP overlays and platform-ready export. Use when the user gives video/music files and asks for an edit, reel, short, TikTok, montage, "edit like this reference", captions or silence removal.
+description: Edit videos with the Blade Editor MCP server (local, free ffmpeg editor) - beat-synced edits, copying a reference edit's cuts, camera moves (sway, whip, rotation, zoom) and effects onto the user's footage, speed ramps, Persian/Arabic text, captions, jump cuts, overlays, Kinetograph motion graphics and Google Flow clips. Use when the user gives video/music files and asks for an edit, reel, short, montage, "edit like this reference", captions or silence removal.
 ---
 
-# Blade Editor video editing
+# Blade Editor: how to edit well
 
-Tools come from the `blade-editor` MCP server. Call `start_here` first; on first use, ask the user
-(in their language) if they want the guide, and if yes give the `guide` text translated into
-their language. Call `capabilities` once per chat for the exact
-EDL format and names; do not guess effect, grade or style names.
+Call `start_here` first. Use `blade-spec` for the workflow and `blade-ponytail` for the budget.
 
-## Rules that make good edits
+## 1. Decide BEFORE the first render (the gate)
 
-1. **Look before you plan.** `probe_media` every input, then `view_frames` on every source
-   (12-16 frames) and on a reference (use `every=0.1` on its key 2-3 seconds). Never describe
-   footage you have not seen.
-2. **Measure the reference.** `analyze_video` + `style_from_reference`. Copy its *language*
-   (cut rhythm in beats, flash and shake rate, zoom punches, colour, text timing), not its shots.
-3. **Cut on the music.** Get beats with `analyze_music`. Put cuts on beats, the hardest hits
-   (zoom_punch, flash, shake, sfx `hit`) on downbeats and strong onsets. Change rhythm in the
-   loud part (shorter shots), slow down in quiet parts (speed ramp `[[1,1],[0.6,0.3],[1,2]]`).
-4. **Pick the best moments.** Use `analyze_video` shots/activity to choose high-motion, sharp
-   windows; do not reuse the same moment twice; alternate sources.
-5. **Preview first.** `render_edl` with `preview=true`, `view_frames` on the preview, fix, then
-   `preview=false`. Segments are cached: change one clip and only that clip re-renders.
-6. **Check.** `quality_check` (no black/frozen/silence issues, about -14 LUFS, peak < -1 dBFS).
-   With a reference, `compare_videos` and bring cuts/s, flashes/s and shake close to it.
-7. Report the output path and what you could not match. Never claim a check you did not run.
+Never deliver half versions. Before any render:
+1. `reference_breakdown(ref)` (if there is a reference) and `view_frames` on the reference and on
+   every source (12 frames each; `every=0.1` only on the 1-2 seconds that matter).
+2. Make a table: each reference part -> the tool that rebuilds it (section 2) -> `native`,
+   `kinetograph`, `flow` or `not possible`.
+3. Tell the user in 3-6 lines what you will rebuild exactly, what only approximately, and what
+   not at all. Then do the full edit once, to the standard below. Do not ask for permission to
+   try; do not ship a "first try" you already know is weak.
 
-## Recipes
+## 2. Which tool for what
 
-- **Fast beat edit:** `auto_edit(sources, music, output_path, style="hype"|"phonk"|"cinematic"|"smooth"|"glitch"|<reference path>, duration, title)`.
-  Then open the saved `edl_path`, improve it (ramps, text, sfx) and `render_edl` again.
-- **Talking head:** `speech_segments` -> one clip per `keep` pair (jump cuts), `transcribe` ->
-  `make_caption_texts` (karaoke) -> `texts`, `fit="blur"` for 16:9 -> 9:16, `audio.keep_clip_audio=true`.
-- **Reference remix:** style_from_reference -> auto_edit with that style -> compare_videos ->
-  adjust the EDL until the style table is close.
-- **Branding:** `overlays` for a logo (png, width 0.12-0.18, corner x/y) or picture-in-picture.
+| The edit has | Use |
+|---|---|
+| Cuts on the music | `analyze_music` beats -> clip in/out on beats; or `auto_edit` |
+| Same rhythm/feel as a reference, fast | `auto_edit(style=<ref path>)`, then improve its EDL |
+| A camera move in a reference shot (sway left-right and back, whip, pan, rotation, zoom) | `reference_breakdown` gives `camera_keys` per shot -> clip effect `{"type":"camera","keys":...}`; for one shot `extract_motion` |
+| A move you design (360 spin with stops, sway, whip, zoom pulse, tilt swing) | `camera_preset` -> `camera` effect |
+| A FAST SPIN noted by the breakdown | `camera_preset spin360_holds` / `tilt_swing` with the angles you see (measured angles are too low) |
+| 3D turn, card flip, orbit, perspective, designed titles, shapes, Lottie, kinetic text | `motion_graphic` (Kinetograph; templates in `examples/`) |
+| Impact on a beat | effects `zoom_punch` + `flash` + sfx `hit` on downbeats |
+| Hand-held jitter | effect `shake` (to add) / clip `stabilize: true` (to remove) |
+| Slow motion in one moment | clip `ramp` |
+| Colour of the reference | `grade` (name or `.cube`) |
+| Glitch / RGB look | effects `glitch`, `rgb_split` |
+| Talking video | `speech_segments` -> jump cuts; `transcribe` -> `make_caption_texts` |
+| Logo, PiP, emoji sticker | `overlays` |
+| A shot the user does not have | `flow_generate_video` (dry run first; ask before confirm=true) |
+| Checking | preview `view_frames`, final `quality_check` + `compare_videos` |
 
-- **New AI shots (Google Flow):** `flow_status` -> `flow_generate_video(prompt)` (dry run, no
-  credits; show the screenshot and ASK the user) -> `flow_generate_video(prompt, confirm=true)`
-  -> use the returned file as a clip `src`. Never approve credit dialogs for the user.
+Combine: one shot can have `camera` + `zoom_punch` + `flash`; a Kinetograph title goes on top as an
+overlay; a Flow clip is just another `src`.
 
-- **After-Effects-style graphics (Kinetograph, optional):** write a TSX composition with the
-  `kinetograph` skill, `background={process.env.BLADE_BG ?? "transparent"}`, check it with
-  `kinetograph strip`, then `motion_graphic(entry, out.mov)` and put the result in `overlays`
-  (`width: 1.0` for full frame). Persian/Arabic text: `<div dir="rtl">`, never `<Text>`.
+## 3. Trust the measurements (no loops)
+
+- `analyze_video` cuts are measured; do not overrule them from a guess. Doubt a few? Pass the
+  low-`cut_confidence` ones to `verify_cuts` ONCE and look. Only then re-run once with
+  `sensitivity` 'low' or 'high'. After that the result is final.
+- Tools refuse a 3rd analysis of the same file (`limit_reached`): accept the earlier result and
+  tell the user any remaining doubt in one line.
+- At most 2 revision rounds after the first full render (see blade-ponytail).
+
+## 4. Standard output
+
+9:16 1080x1920 30 fps unless asked; music to -14 LUFS (automatic); `quality_check` without
+issues; with a reference, `compare_videos` cuts/s and flashes/s within about 30% of the
+reference. Report the path, what matches, and the honest limits.
 
 ## Gotchas
 
-- Clip effect times are relative to the clip; `texts`, `sfx`, `overlays`, `global_effects`
-  use output time. A crossfade overlaps two clips by its `dur`.
-- Persian/Arabic text: use the bundled styles (Vazirmatn); letter spacing is set to 0
-  automatically so letters join.
-- `ramp` and `speed` keep the clip audio, time-stretched with pitch kept.
-- `stabilize: true` on a shaky clip (crops about 8% at the edges).
-- Emoji in `texts` become colour stickers above the text; use `overlays` with `src: "emoji:🔥"`
-  to place one anywhere.
-- Without Google Flow, Blade Editor does not generate new footage. After-Effects motion graphics
-  (masks, tracked 3D text, particles) cannot be copied; get close with zoom/shake/flash/
-  ramps/overlays/text animations and say what differs.
+- Clip effect times are from the clip start; `texts`, `sfx`, `overlays`, `global_effects` use output time.
+- Persian/Arabic text: use the bundled styles; emoji become colour stickers. In Kinetograph use
+  `<div dir="rtl">`, never `<Text>`.
+- Big rotations zoom in to hide the corners; for 9:16 a 90-degree turn crops a lot - use
+  Kinetograph for a full-frame spin if that matters.

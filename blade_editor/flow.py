@@ -5,14 +5,17 @@ Rewritten from the ideas in vynnlee/google-flow-mcp (MIT) with these fixes:
 - no hard-coded UI language (the original typed an Italian prompt and clicked "Approva");
 - never clicks a credit confirmation dialog: `confirm=true` submits, and any dialog Flow
   shows after that is left for you to approve in the browser;
-- no copying of your Chrome profile/cookies to a temp folder, no hidden automation flags;
+- uses YOUR running Chrome (remote debugging allowed in chrome://inspect, Chrome asks you to
+  Allow each connection); no profile copy, no second browser, no hidden automation flags;
 - one port setting; only NEW videos (not in the page before the submit) are downloaded.
 """
 
 from __future__ import annotations
 
 import base64
+import os
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -29,39 +32,64 @@ SCAN_JS = """() => [...document.querySelectorAll('video, img')].map(el => ({
     w: el.width || el.clientWidth || 0 }))"""
 
 
-def setup_help(port: int = 9222) -> dict:
-    prof = str(Path.home() / ".blade-editor" / "flow-chrome")
-    flags = f'--remote-debugging-port={port} --user-data-dir="{prof}"'
+def _chrome_data_dirs() -> list[Path]:
+    if os.environ.get("BLADE_CHROME_DATA"):
+        return [Path(os.environ["BLADE_CHROME_DATA"])]
+    home = Path.home()
+    if os.name == "nt":
+        local = Path(os.environ.get("LOCALAPPDATA", home / "AppData" / "Local"))
+        return [local / "Google" / "Chrome" / "User Data", local / "Microsoft" / "Edge" / "User Data"]
+    if sys.platform == "darwin":
+        base = home / "Library" / "Application Support"
+        return [base / "Google" / "Chrome", base / "Microsoft Edge"]
+    return [home / ".config" / "google-chrome", home / ".config" / "chromium"]
+
+
+def _own_chrome_endpoint() -> str | None:
+    """WebSocket address of YOUR running Chrome after you allowed remote debugging in
+    chrome://inspect/#remote-debugging (Chrome 144+). Chrome writes it to DevToolsActivePort."""
+    for d in _chrome_data_dirs():
+        f = d / "DevToolsActivePort"
+        if f.exists():
+            lines = f.read_text().split()
+            if len(lines) >= 2:
+                return f"ws://127.0.0.1:{lines[0]}{lines[1]}"
+    return None
+
+
+def setup_help(port: int = 0) -> dict:
     return {
         "steps": [
-            "1. Close nothing; start a SEPARATE Chrome with the command for your system (a new profile).",
-            "2. In that window log in to your Google account and open Google Flow; open or create a project.",
-            "3. Keep that window open. Blade Editor connects to it on 127.0.0.1 only.",
+            "1. Use your normal Chrome (version 144 or newer), where you are logged in to Google.",
+            "2. In Chrome open chrome://inspect/#remote-debugging and turn ON remote debugging.",
+            "3. Open Google Flow (" + FLOW_URL + ") in a tab and open or create a project.",
+            "4. When Blade Editor connects, Chrome asks for permission: click Allow.",
         ],
-        "commands": {
-            "windows": f'"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" {flags} {FLOW_URL}',
-            "macos": f'"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" {flags} {FLOW_URL}',
-            "linux": f"google-chrome {flags} {FLOW_URL}",
-        },
         "notes": [
             "Generation uses your own Flow credits and plan.",
             "Automating the Flow website may be against Google's terms; use it at your own risk.",
             "Blade Editor never solves CAPTCHAs and never approves credit dialogs for you.",
+            "Turn remote debugging off again in chrome://inspect when you are done.",
         ],
     }
 
 
-async def _connect(port: int):
+async def _connect(port: int = 0):
     try:
         from playwright.async_api import async_playwright
     except ImportError as e:
         raise RuntimeError("Install the Flow extra: pip install 'blade-editor[flow]'") from e
+    endpoint = f"http://127.0.0.1:{port}" if port else _own_chrome_endpoint()
+    if not endpoint:
+        raise RuntimeError("Your Chrome does not allow remote debugging yet. Open "
+                           "chrome://inspect/#remote-debugging in Chrome, turn it on, and try again.")
     pw = await async_playwright().start()
     try:
-        browser = await pw.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
+        browser = await pw.chromium.connect_over_cdp(endpoint)
     except Exception as e:
         await pw.stop()
-        raise RuntimeError(f"No Chrome on port {port}. Call flow_setup and start Chrome as shown. ({e})")
+        raise RuntimeError(f"Could not connect to Chrome ({endpoint}). Is Chrome open with remote "
+                           f"debugging on, and did you click Allow? ({e})")
     pages = [p for c in browser.contexts for p in c.pages]
     page = next((p for p in pages if "/flow" in p.url), None)
     if page is None:
@@ -119,7 +147,7 @@ async def _download(page, key: str, info: dict, out: Path) -> bool:
     return False
 
 
-async def status(port: int = 9222) -> dict:
+async def status(port: int = 0) -> dict:
     pw, page = await _connect(port)
     try:
         shot = await page.screenshot(type="jpeg", quality=60)
@@ -128,7 +156,7 @@ async def status(port: int = 9222) -> dict:
         await pw.stop()
 
 
-async def generate_video(prompt: str, out_dir: str | Path, confirm: bool = False, port: int = 9222,
+async def generate_video(prompt: str, out_dir: str | Path, confirm: bool = False, port: int = 0,
                          direct: bool = True, timeout: float = 600, poll: float = 5) -> dict:
     """Type the prompt in Flow. With confirm=True also submit and download the new video(s)."""
     pw, page = await _connect(port)
@@ -173,7 +201,7 @@ async def generate_video(prompt: str, out_dir: str | Path, confirm: bool = False
         await pw.stop()
 
 
-async def collect(out_dir: str | Path, port: int = 9222, limit: int = 4) -> dict:
+async def collect(out_dir: str | Path, port: int = 0, limit: int = 4) -> dict:
     """Download the newest videos visible on the Flow page (after a timeout or for old results)."""
     pw, page = await _connect(port)
     try:

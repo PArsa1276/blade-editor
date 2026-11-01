@@ -137,3 +137,30 @@ def test_register_writes_both_configs_and_keeps_old_keys(tmp_path, monkeypatch):
     assert cli["mcpServers"]["blade-editor"]["args"] == ["-m", "blade_editor.server"]
     desk = json.loads(open(written[1]).read())
     assert "blade-editor" in desk["mcpServers"]
+
+
+def test_camera_copy_replays_reference_sway(media, tmp_path):
+    from blade_editor import camera
+    ref = tmp_path / "sway.mp4"
+    _ff("-f", "lavfi", "-i", "testsrc2=s=1280x720:r=30:d=2",
+        "-vf", "crop=800:450:x='240+160*sin(2*PI*t)':y=135,scale=640:360", str(ref))
+    m0 = camera.measure(str(ref))
+    assert any("sway" in d for d in camera.describe(m0))
+    out = tmp_path / "copy.mp4"
+    render.render({"output": {"path": str(out), "width": 640, "height": 360},
+                   "clips": [{"src": str(media / "src.mp4"), "in": 3, "out": 5,
+                              "effects": [{"type": "camera", "keys": camera.keyframes(m0)}]}]}, tmp_path / "w")
+    m1 = camera.measure(str(out))
+    n = min(len(m0["x"]), len(m1["x"]))
+    assert np.corrcoef(m0["x"][:n], m1["x"][:n])[0, 1] > 0.9
+    keys = camera.preset("spin360_holds", 4)
+    assert keys[-1][3] == 360 and keys[2][3] == keys[1][3]  # holds at each stop
+
+
+def test_repeat_analysis_is_refused(media):
+    from blade_editor import server
+    server._CALLS.clear()
+    p = str(media / "src.mp4")
+    assert "cuts" in server.analyze_video(p)
+    assert "cuts" in server.analyze_video(p, sensitivity="low")
+    assert server.analyze_video(p).get("limit_reached")

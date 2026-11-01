@@ -5,7 +5,7 @@ normal words. Blade Editor lets the agent *see* your footage, measure the music 
 of a reference video, cut on the beat, add effects, text and captions, and check the result -
 all on your own computer, with ffmpeg. No cloud, no credits, no watermark.
 
-> 🇮🇷 [راهنمای فارسی قدم به قدم](GUIDE_FA.md) · 🇬🇧 [Step-by-step guide](blade_editor/GUIDE.md)
+> Install: 🇬🇧 [INSTALL.md](INSTALL.md) · 🇮🇷 [INSTALL_FA.md](INSTALL_FA.md) — Use: 🇬🇧 [short guide](blade_editor/GUIDE.md) · 🇮🇷 [راهنمای کوتاه](GUIDE_FA.md)
 
 ```text
 You:    Make a 15-second vertical hype edit of the clips in this folder on song.mp3,
@@ -33,8 +33,8 @@ environment (`~/.blade-editor/venv`), writes it into the Claude settings (`~/.cl
 Claude Code and the desktop app's Code tab, `claude_desktop_config.json` for Claude Desktop
 chats) and installs the editing skill. The `claude` command is not needed. Quit the Claude app
 before you run it and open it again after.
-Complete beginners: follow the [step-by-step guide](blade_editor/GUIDE.md) (English) or
-[GUIDE_FA.md](GUIDE_FA.md) (Persian).
+Complete beginners: follow [INSTALL.md](INSTALL.md) (English) or [INSTALL_FA.md](INSTALL_FA.md)
+(Persian), step by step.
 
 ## Everything it can do
 
@@ -45,6 +45,9 @@ Complete beginners: follow the [step-by-step guide](blade_editor/GUIDE.md) (Engl
 | `analyze_video` | Cuts, shots, camera moves (pan/tilt/handheld), shake, flashes, activity per second |
 | `analyze_music` | BPM, beats, downbeats, strong hits, loudness per second |
 | `style_from_reference` | Turns a reference edit into a style: cut rhythm in beats, zoom punch, flash and shake rate, colour grade |
+| `reference_breakdown` | The recipe of a reference edit shot by shot, in few tokens: length, cut on beat, flashes, camera moves with ready keyframes, and which tool rebuilds each part |
+| `extract_motion` | The camera move of one shot - movement, **rotation** and **zoom** - as keyframes you can replay on any clip (sway, whip, spin, zoom pulse) |
+| `verify_cuts` | Before/after frames of each cut in one image, for a single quick check (no endless re-analysis) |
 | `probe_media` | Duration, size, fps, codecs |
 
 ### ✂️ Edit
@@ -55,10 +58,13 @@ Complete beginners: follow the [step-by-step guide](blade_editor/GUIDE.md) (Engl
 | `speech_segments` | Finds the parts with speech for jump cuts (pause removal) |
 | `transcribe` + `make_caption_texts` | Speech to text with word times, karaoke-style captions |
 | `make_sfx` | Generated sound effects: whoosh, hit, riser, click, glitch, boom, swish |
+| `camera_preset` | Smooth ready-made camera moves: 360 spin with stops, sway, whip, zoom pulse, tilt swing |
 
 Inside an edit list:
 - **Clips:** trim, speed, **speed ramps (with sound)**, reverse, **stabilize**, vertical crop that
   can **follow the motion**, blurred-background fit, images and colour cards.
+- **Camera:** keyframed moves (`camera` effect): copy a reference shot's sway, whip, rotation and
+  zoom, or use a preset - with smooth easing and automatic cover zoom (no black corners).
 - **Effects:** zoom punch, slow zoom, shake, flash, strobe, RGB split, glitch, blur,
   motion blur, grain, vignette, letterbox, invert.
 - **Colour:** 11 looks (teal-orange, cinematic, B&W, phonk, cyber, vintage…) and your own `.cube` LUTs.
@@ -78,16 +84,23 @@ Inside an edit list:
 ### ✨ Optional extras
 | Tool | What it does |
 |---|---|
-| `flow_setup`, `flow_status`, `flow_generate_video`, `flow_collect` | New AI clips with **Google Flow (Veo)** through your own logged-in Chrome and your own credits. Dry run first (no credits); never approves credit dialogs; never solves CAPTCHAs |
-| `motion_graphic` | After-Effects-style titles and graphics with [Kinetograph](https://github.com/0xS4N4TG/kinetograph), rendered to a **transparent** clip (exact alpha from a black/white double render) and placed on the edit |
+| `flow_setup`, `flow_status`, `flow_generate_video`, `flow_collect` | New AI clips with **Google Flow (Veo)** in **your own Chrome** (Chrome 144+: turn on `chrome://inspect/#remote-debugging`, click Allow), with your own login and credits. Dry run first (no credits); never approves credit dialogs; never solves CAPTCHAs |
+| `motion_graphic` | After-Effects-style titles, graphics and **3D turns of your clips** with [Kinetograph](https://github.com/0xS4N4TG/kinetograph), rendered to a **transparent** clip (exact alpha from a black/white double render) and placed on the edit. Templates: `examples/kinetograph-title`, `examples/kinetograph-spin3d` |
 
 ### 🧭 Built for agents
 - `start_here` and `guide`: on first use the agent asks if you want the guide and gives it to
   you **in your own language**.
 - `capabilities`: the full edit-list format and all names, so the agent never guesses.
 - Error messages reach the agent with the real reason ("clip 0: file not found: …").
-- The `blade-edit` skill teaches the agent the best workflow: look first, measure the
-  reference, cut on the music, preview, check.
+- **Decide first, one complete edit:** before the first render the agent maps every reference
+  part to a tool (native, Kinetograph, Flow or not possible), tells you the limits, then makes
+  one finished edit - no half versions.
+- **No loops:** repeated analysis of the same file is refused by the server, so a doubt costs
+  one check, not your whole token budget.
+- Three bundled skills, installed together:
+  - `blade-edit` - which tool for what, and how to combine them;
+  - `blade-spec` - spec-driven workflow (adapted from spec-kit): spec -> plan -> build -> verify;
+  - `blade-ponytail` - lean mode: fewest calls, renders and tokens, hard limits.
 
 ## Example requests
 
@@ -107,7 +120,7 @@ Manual install:
 ```bash
 pip install ".[captions]"
 python -m blade_editor.server --register   # writes the Claude settings files
-cp -r skill/blade-edit ~/.claude/skills/
+cp -r skill/* ~/.claude/skills/
 ```
 Claude Desktop (`claude_desktop_config.json`): `{ "mcpServers": { "blade-editor": { "command": "blade-editor" } } }`
 

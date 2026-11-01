@@ -36,5 +36,5 @@ Say "Connecting Blade Editor to Claude (app and Claude Code)"
 & $spy -m blade_editor.server --register
 if ($LASTEXITCODE -ne 0) { Write-Host "Could not write the Claude settings. Quit the Claude app and run this file again."; exit 1 }
 New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null
-Copy-Item -Recurse -Force "skill\blade-edit" "$HOME\.claude\skills\"
+Copy-Item -Recurse -Force "skill\*" "$HOME\.claude\skills\"
 Say "Blade Editor is ready. Quit the Claude app (and Claude Code) completely, then open it again."

@@ -63,6 +63,9 @@ EFFECT_DOCS = {
     "letterbox": "Black bars. Keys: amount(0.12 of height).",
     "invert": "Invert colors inside a window. Keys: at, dur(0.1).",
     "strobe": "Brightness strobe at a rate. Keys: at, dur, rate(8 per s), amount(0.6).",
+    "camera": "Keyframed camera move: keys=[[t, x, y, rot_deg, zoom], ...] (x, y = content offset in "
+              "fractions of the frame), ease 'smooth'|'linear'. Get keys from extract_motion to copy a "
+              "reference move (sway, whip, rotation, zoom), or write them (e.g. a 360 spin with holds).",
     "motion_blur": "Blend neighbour frames (use with fast zoom/shake). Keys: at, dur(0.3), amount(frames, 4).",
 }
 

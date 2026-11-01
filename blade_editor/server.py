@@ -14,29 +14,31 @@ from typing import Any
 from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import __version__, analyze, audio, autoedit, captions, effects, ff, flow, motion, qa, render, sfx, text
+from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, qa, render, sfx, text
 
 HOME = Path(os.environ.get("BLADE_HOME", Path.home() / "blade_projects")).expanduser()
 
 INSTRUCTIONS = """\
-Blade Editor edits video locally with ffmpeg. It is free and has no credit limits.
+Blade Editor edits video locally with ffmpeg. Free, no credit limits.
 
-FIRST: call `start_here` once per conversation before other Blade Editor tools. If it says
-first_use=true, ask the user, in the language they write in, whether they want the user guide.
-If they say yes, call `guide` and give them the whole guide translated into their language
-(keep commands, file names and tool names unchanged).
+FIRST: call `start_here` once per conversation. If first_use=true, ask the user (in their
+language) if they want the short guide; if yes, call `guide` and translate it fully.
 
-Recommended loop for an edit:
-1. probe_media / analyze_video on every input. Use view_frames to SEE the footage; do not guess.
-2. With a reference edit: style_from_reference (measures cut rhythm, flashes, shake, colour)
-   and view_frames on the reference.
-3. Fast path: auto_edit (beat-synced edit in a preset or reference style).
-   Full control: write an EDL (see capabilities) and call render_edl with preview=true first.
-4. view_frames on the preview, fix the EDL, then render_edl with preview=false.
-5. quality_check on the final file; with a reference, compare_videos too. Report the output path.
+DECIDE BEFORE THE FIRST RENDER: run `reference_breakdown` (when there is a reference) and
+`view_frames` on the reference and sources. Map each part to a tool: camera moves -> `camera`
+effect with the breakdown's keys (or `camera_preset`); 3D turns, designed titles/graphics ->
+`motion_graphic` (Kinetograph); missing shots -> Google Flow (ask before spending credits);
+beats -> clip in/out on beats or `auto_edit`. Tell the user briefly what will match exactly,
+approximately, or not at all - then make ONE complete, standard edit (no half versions).
 
-All times are seconds. Clip effect times are relative to the clip start; texts, sfx and
-global_effects use output time. Text supports Persian/Arabic (Vazirmatn font is bundled).
+TRUST MEASUREMENTS: cuts from `analyze_video` are measured; check doubts once with
+`verify_cuts`, re-run at most once with `sensitivity`. Repeated analysis of a file is refused
+(`limit_reached`): accept the earlier result. At most 2 previews and 2 revision rounds.
+
+Loop: preview with render_edl(preview=true) -> view_frames -> final -> quality_check (+
+compare_videos with a reference). Times are seconds; clip effect times are from the clip start;
+texts/sfx/overlays/global_effects use output time. Persian/Arabic text and colour emoji work.
+Skills blade-edit, blade-spec and blade-ponytail give the full rules when installed.
 """
 
 mcp = MCPServer("blade-editor", instructions=INSTRUCTIONS, version=__version__)
@@ -160,14 +162,36 @@ def probe_media(path: str) -> dict:
     return ff.probe(_abs(path))
 
 
+_CALLS: dict[tuple[str, str], int] = {}
+LIMITS = {"analyze_video": 2, "verify_cuts": 1, "reference_breakdown": 2}
+
+
+def _budget(tool: str, path: str) -> dict | None:
+    """Hard cap on repeated checks of the same file, so a doubt can never become a loop."""
+    key = (tool, str(Path(path).expanduser()))
+    _CALLS[key] = _CALLS.get(key, 0) + 1
+    if _CALLS[key] > LIMITS[tool]:
+        return {"limit_reached": True,
+                "message": f"{tool} already ran {LIMITS[tool]}x on this file in this chat. Use the "
+                           "earlier result as final; do not check it again. Tell the user any doubt."}
+    return None
+
+
 @mcp.tool()
-def analyze_video(path: str, project: str | None = None, max_fps: float = 30.0) -> dict:
-    """Measure a video's edit language: cut times, shots (length, camera move, shake), flashes,
-    activity per second, and music beats (BPM, beats, downbeats, onsets) when it has audio.
-    The full result is saved as JSON; the reply holds the main parts."""
-    r = analyze.analyze_video(_abs(path), max_fps=max_fps)
+def analyze_video(path: str, project: str | None = None, max_fps: float = 30.0,
+                  sensitivity: str = "normal") -> dict:
+    """Measure a video's edit language: cut times (+ confidence 0..1), shots (length, camera
+    move, shake), flashes, activity per second, and music beats when it has audio.
+    The cut detector is measured and usually right: do NOT overrule it from guesses. If you doubt
+    some cuts, call verify_cuts ONCE and look; only then you may re-run with sensitivity
+    'low' (fewer cuts) or 'high' (more cuts). Max 2 runs per file per chat."""
+    if sensitivity not in analyze.SENSITIVITY:
+        raise ValueError(f"sensitivity must be one of {list(analyze.SENSITIVITY)}")
+    if (stop := _budget("analyze_video", path)):
+        return stop
+    r = analyze.analyze_video(_abs(path), max_fps=max_fps, sensitivity=sensitivity)
     saved = _save(_project(project), f"analysis_{Path(path).stem}", r)
-    reply = {k: r[k] for k in ("summary", "cuts", "flashes", "shots")}
+    reply = {k: r[k] for k in ("summary", "cuts", "cut_confidence", "flashes", "shots")}
     reply["file"] = r["file"]
     reply["per_second"] = r["per_second"][:120]
     if "audio" in r:
@@ -175,6 +199,102 @@ def analyze_video(path: str, project: str | None = None, max_fps: float = 30.0) 
         reply["audio"]["beats"] = r["audio"]["beats"][:200]
     reply["saved_json"] = saved
     return reply
+
+
+@mcp.tool()
+def verify_cuts(path: str, cuts: list[float], project: str | None = None) -> list:
+    """One image to check cuts by eye: for each cut time, the frame just before and just after
+    (max 24 cuts; pass the low-confidence ones first). A real cut shows two different shots.
+    Use it once per file; then accept the result."""
+    if (stop := _budget("verify_cuts", path)):
+        return [json.dumps(stop)]
+    src = _abs(path)
+    proj = _project(project)
+    from PIL import Image as PILImage, ImageDraw
+    tiles = []
+    for c in cuts[:24]:
+        pair = []
+        for k, t in enumerate((c - 0.07, c + 0.04)):
+            fp = proj / f"vc_{int(time.time() * 1000)}_{k}.jpg"
+            ff.extract_frame(src, max(0.0, t), fp, 200)
+            pair.append(PILImage.open(fp).convert("RGB"))
+            fp.unlink()
+        w, h = pair[0].size
+        tile = PILImage.new("RGB", (2 * w + 6, h + 20), (20, 20, 20))
+        tile.paste(pair[0], (0, 20)); tile.paste(pair[1], (w + 6, 20))
+        ImageDraw.Draw(tile).text((4, 3), f"cut {c:.2f}s  before | after", fill=(255, 220, 0))
+        tiles.append(tile)
+    if not tiles:
+        raise ValueError("Give at least one cut time.")
+    cols = 3
+    tw, th = tiles[0].size
+    sheet = PILImage.new("RGB", (cols * tw, -(-len(tiles) // cols) * th), (0, 0, 0))
+    for i, t in enumerate(tiles):
+        sheet.paste(t, ((i % cols) * tw, (i // cols) * th))
+    out = proj / f"verify_cuts_{int(time.time())}.jpg"
+    sheet.save(out, quality=80)
+    return [Image(path=str(out)), json.dumps({"cuts": cuts[:24], "image": str(out)})]
+
+
+@mcp.tool()
+def extract_motion(path: str, start: float = 0.0, end: float | None = None, max_keys: int = 16) -> dict:
+    """Measure the camera move of ONE shot (no cut inside): movement, rotation and zoom, as a
+    short list of keyframes [t, x, y, rot_deg, zoom] plus plain words (sway, whip, rotation,
+    zoom, shake). Put the keys in a clip effect {"type": "camera", "keys": ...} to copy the move
+    onto any clip (key times are from the shot start)."""
+    m = camera.measure(_abs(path), start, end)
+    return {"keys": camera.keyframes(m, max_keys), "moves": camera.describe(m),
+            "duration": round(float(m["t"][-1]), 3)}
+
+
+@mcp.tool()
+def camera_preset(name: str, duration: float, amount: float | None = None, count: int | None = None) -> dict:
+    """Ready, smooth camera keyframes for a clip effect {"type":"camera","keys":...}:
+    spin360_holds (360-degree turn that stops at each of `count` angles, default 4 = 90/180/270/360),
+    sway (left-right and back, amount = fraction of width), whip_left / whip_right,
+    zoom_pulse (amount = extra zoom), tilt_swing (rotation back and forth, amount = degrees).
+    For 3D turns (card flip, orbit, perspective) use motion_graphic with Kinetograph instead."""
+    return {"keys": camera.preset(name, duration, amount, count)}
+
+
+@mcp.tool()
+def reference_breakdown(path: str, max_shots: int = 30, project: str | None = None) -> dict:
+    """The recipe of a reference edit, shot by shot, in few tokens: length, cut on beat, camera
+    moves with ready `camera` keys, flashes, shake, and which Blade Editor tool reproduces each
+    part. Call this FIRST for any "copy this edit" request, then decide what you can rebuild."""
+    if (stop := _budget("reference_breakdown", path)):
+        return stop
+    src = _abs(path)
+    a = analyze.analyze_video(src)
+    beats = (a.get("audio") or {}).get("beats") or []
+    shots = []
+    for sh in a["shots"][:max_shots]:
+        row = {"start": sh["start"], "end": sh["end"], "duration": sh["duration"]}
+        if beats:
+            row["starts_on_beat"] = any(abs(b - sh["start"]) <= 0.07 for b in beats)
+        fl = [f for f in a["flashes"] if sh["start"] <= f < sh["end"]]
+        if fl:
+            row["flashes"] = [round(f - sh["start"], 2) for f in fl]
+        how = ["clip trim (in/out) on the beat grid"]
+        if sh["duration"] >= 0.3:
+            m = camera.measure(src, sh["start"], sh["end"])
+            moves = camera.describe(m)
+            if moves:
+                row["moves"] = moves
+                row["camera_keys"] = camera.keyframes(m, 10)
+                how.append('effect {"type":"camera","keys":camera_keys}')
+                if any("shake" in x for x in moves):
+                    how.append('effect {"type":"shake"} for the jitter')
+        if fl:
+            how.append('effect {"type":"flash","at":<flash time>}')
+        row["how"] = how
+        shots.append(row)
+    out = {"summary": a["summary"], "bpm": (a.get("audio") or {}).get("bpm"), "shots": shots,
+           "not_measurable": ["3D rotation/perspective (card flips, orbit)", "masks and tracked text",
+                              "particles"],
+           "for_those": "use motion_graphic (Kinetograph) or say the limit to the user before rendering"}
+    out["saved_json"] = _save(_project(project), f"breakdown_{Path(path).stem}", out)
+    return out
 
 
 @mcp.tool()
@@ -338,20 +458,22 @@ def _with_shot(r: dict) -> list:
 
 
 @mcp.tool()
-def flow_setup(port: int = 9222) -> dict:
-    """How to connect Google Flow (AI video generation with your own Google account and credits):
-    start a separate Chrome with remote debugging, log in, open a Flow project."""
+def flow_setup(port: int = 0) -> dict:
+    """How to connect Google Flow (AI video with your own Google account and credits) through
+    YOUR normal Chrome: turn on chrome://inspect/#remote-debugging, open a Flow project, Allow.
+    port=0 (default) finds your Chrome by itself; a number connects to a Chrome started with
+    --remote-debugging-port."""
     return flow.setup_help(port)
 
 
 @mcp.tool()
-async def flow_status(port: int = 9222) -> list:
+async def flow_status(port: int = 0) -> list:
     """Check the connection to the Flow tab in your Chrome and show a screenshot of it."""
     return _with_shot(await flow.status(port))
 
 
 @mcp.tool()
-async def flow_generate_video(prompt: str, confirm: bool = False, port: int = 9222, direct: bool = True,
+async def flow_generate_video(prompt: str, confirm: bool = False, port: int = 0, direct: bool = True,
                               timeout: float = 600, project: str | None = None) -> list:
     """Generate a video clip with Google Flow (Veo) in your logged-in Chrome.
     confirm=false (default) only types the prompt and returns a screenshot; no credits are spent.
@@ -363,7 +485,7 @@ async def flow_generate_video(prompt: str, confirm: bool = False, port: int = 92
 
 
 @mcp.tool()
-async def flow_collect(port: int = 9222, limit: int = 4, project: str | None = None) -> dict:
+async def flow_collect(port: int = 0, limit: int = 4, project: str | None = None) -> dict:
     """Download the newest videos visible in the Flow tab (use after a flow_generate_video timeout)."""
     return await flow.collect(_project(project) / "flow", port, limit)
 

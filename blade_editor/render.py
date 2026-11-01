@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import effects, emoji, ff, sfx, text
+from . import camera, effects, emoji, ff, sfx, text
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 CUSTOM_TRANSITIONS = {"cut", "flash", "zoom", "glitch", "whip"}
@@ -246,6 +246,9 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
     graph.append(_fit_graph(fit, W, H, focus, "v0", "v1"))
     post = effects.grade(c.get("grade") or out.get("grade"))
     scaled = [dict(e, amount=e.get("amount")) for e in c["effects"]]
+    for e in scaled:
+        if e.get("type") == "camera":
+            post += camera.camera_chain(e["keys"], W, H, e.get("ease", "smooth"))
     post += effects.motion_chain(scaled, W, H, D)
     post += effects.look_chain(scaled, W, H, D)
     post += ["tpad=stop_mode=clone:stop_duration=1", f"trim=duration={D:.4f}",

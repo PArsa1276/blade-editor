@@ -36,7 +36,11 @@ def _peaks(x: np.ndarray, thr: np.ndarray | float, min_gap: int) -> list[int]:
     return out
 
 
-def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True) -> dict:
+SENSITIVITY = {"low": 1.5, "normal": 1.0, "high": 0.7}
+
+
+def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True,
+                  sensitivity: str = "normal") -> dict:
     """Measure the edit language of a video: cut rhythm, flashes, motion, camera and shake."""
     info = ff.probe(path)
     frames, fps = ff.read_gray_frames(path, width=160, fps=max_fps)
@@ -66,9 +70,10 @@ def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True) 
     d_med = _local_median(diff)
     h_score = hdist - h_med
     d_ratio = diff / (d_med + 1.0)
-    is_cut = ((h_score > np.maximum(0.2, 2.5 * h_med)) |
-              ((h_score > 0.1) & (d_ratio > 3.0)) |
-              ((diff - d_med > 25) & (d_ratio > 2.5)))
+    k_s = SENSITIVITY[sensitivity]  # "low" finds fewer cuts, "high" more
+    is_cut = ((h_score > np.maximum(0.2, 2.5 * h_med) * k_s) |
+              ((h_score > 0.1 * k_s) & (d_ratio > 3.0 * k_s)) |
+              ((diff - d_med > 25 * k_s) & (d_ratio > 2.5 * k_s)))
     cand = [i for i in range(3, n) if is_cut[i]]  # frames 1-2: decoder/filter start-up noise
     min_gap = max(2, int(fps * 0.08))
     cut_idx: list[int] = []
@@ -173,6 +178,8 @@ def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True) 
         "analysis_fps": fps,
         "frames_analyzed": n,
         "cuts": [round(i / fps, 3) for i in cut_idx],
+        # 0..1: how far over the threshold each cut is. Low values are the ones worth a look.
+        "cut_confidence": [round(float(min(1.0, max(hdist[i] / 0.5, diff[i] / 60))), 2) for i in cut_idx],
         "flashes": [round(i / fps, 3) for i in flashes],
         "shots": shots,
         "per_second": per_second,
