@@ -103,6 +103,7 @@ def normalize(edl: dict) -> dict:
     out.setdefault("preset", "medium")
     if not out.get("path"):
         raise ValueError("output.path is required.")
+    Path(out["path"]).parent.mkdir(parents=True, exist_ok=True)
     out["width"] = int(out["width"]) // 2 * 2
     out["height"] = int(out["height"]) // 2 * 2
     clips = []

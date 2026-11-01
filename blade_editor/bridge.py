@@ -75,7 +75,13 @@ class Bridge:
         fut = asyncio.get_running_loop().create_future()
         self.pending[i] = fut
         await self.ws.send(json.dumps({"id": i, "cmd": cmd, "args": args}))
-        return await asyncio.wait_for(fut, timeout)
+        try:
+            return await asyncio.wait_for(fut, timeout)
+        except asyncio.TimeoutError:
+            self.pending.pop(i, None)
+            raise RuntimeError(f"Blade Bridge: no answer to '{cmd}' in {timeout:.0f}s. Chrome may have put the "
+                               "extension to sleep or the Flow page is still loading: click the Blade Bridge "
+                               "icon in Chrome and try again.") from None
 
 
 BRIDGE = Bridge()

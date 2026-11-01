@@ -36,7 +36,8 @@ def check(path: str) -> dict:
     out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,duration",
                           "-of", "csv=p=0", path], capture_output=True, text=True).stdout
     for line in out.splitlines():
-        kind, _, d = line.partition(",")
+        # Rotated phone videos add side-data fields after the duration: "video,7.95,".
+        kind, d = (line.split(",") + [""])[:2]
         if kind in ("video", "audio") and d not in ("", "N/A"):
             lens[kind] = float(d)
     if len(lens) == 2 and abs(lens["video"] - lens["audio"]) > 0.2:

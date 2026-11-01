@@ -185,3 +185,11 @@ def test_short_music_is_looped_to_the_asked_length(media, tmp_path):
     edl = autoedit.build_edl([str(media / "src.mp4")], str(short), str(tmp_path / "a.mp4"), "hype",
                              duration=9, width=320, height=568)
     assert edl["_meta"]["duration"] == 9 and edl["_meta"]["warnings"]
+
+
+def test_rtl_karaoke_runs_in_visual_order():
+    from blade_editor import text
+    words = [{"word": w, "start": i * 0.5, "end": i * 0.5 + 0.5} for i, w in enumerate("یک دو سه".split())]
+    raw = [i["_raw"] for i in text.captions_to_items([{"start": 0, "end": 1.5, "text": "", "words": words}])]
+    # libass puts colour runs left to right, so for Persian the later words come first.
+    assert raw[1] == "{\\fsp0}سه {\\1c&H00E6FF&}دو{\\1c&HFFFFFF&} یک"

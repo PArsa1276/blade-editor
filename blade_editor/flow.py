@@ -1,4 +1,4 @@
-"""Google Flow (labs.google) video generation through YOUR OWN logged-in Chrome.
+"""Google Flow (flow.google.com, formerly labs.google) video generation through YOUR OWN logged-in Chrome.
 
 Flow has no public API, so this drives the web page over the Chrome DevTools Protocol.
 Rewritten from the ideas in vynnlee/google-flow-mcp (MIT) with these fixes:
@@ -20,6 +20,8 @@ import time
 from pathlib import Path
 
 FLOW_URL = os.environ.get("BLADE_FLOW_URL", "https://labs.google/fx/tools/flow")
+# Tabs that count as Flow. Google now redirects the labs.google address to flow.google.com.
+FLOW_MATCH = [FLOW_URL.split("/flow")[0] + "/flow", "https://flow.google.com/", "https://labs.google/fx/tools/flow"]
 MEDIA_RE = re.compile(r"media\.getMediaUrlRedirect\?name=([A-Za-z0-9_-]+)")
 PROMPT_SELECTORS = ['[contenteditable="true"]', "textarea"]
 SUBMIT_SELECTORS = [
@@ -257,8 +259,7 @@ async def _driver(port: int = 0, wait: float = 35):
     if not port:
         quick = 3 if _own_chrome_endpoint() else wait
         if await BRIDGE.wait(quick):
-            match = FLOW_URL.split("/flow")[0] + "/flow"
-            r = await BRIDGE.call("ensure_tab", url=FLOW_URL, match=match)
+            r = await BRIDGE.call("ensure_tab", url=FLOW_URL, match=FLOW_MATCH)
             return _Ext(r["url"])
         if not _own_chrome_endpoint():
             raise RuntimeError("Blade Bridge is not connected. " + EXTENSION_HELP)

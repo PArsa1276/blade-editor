@@ -177,11 +177,16 @@ def captions_to_items(segments: list[dict], style: str = "subtitle", pos: str = 
                 s = w["start"]
                 e = group[j + 1]["start"] if j + 1 < len(group) else w["end"]
                 if karaoke:
-                    parts = []
-                    for m, ww in enumerate(group):
-                        token = _esc(ww["word"].strip())
-                        parts.append("{\\1c&H00E6FF&}" + token + "{\\1c&HFFFFFF&}" if m == j else token)
-                    items.append({"_raw": " ".join(parts), "text": "x", "start": s, "end": max(e, s + 0.05),
+                    toks = [_esc(ww["word"].strip()) for ww in group]
+                    runs = [" ".join(toks[:j]), "{\\1c&H00E6FF&}" + toks[j] + "{\\1c&HFFFFFF&}", " ".join(toks[j + 1:])]
+                    raw = ""
+                    if _RTL.search(" ".join(toks)):
+                        # libass orders right-to-left text only inside each colour run and puts the runs
+                        # left to right, so the runs go in visual order: later words first.
+                        runs.reverse()
+                        raw = "{\\fsp0}"
+                    raw += " ".join(r for r in runs if r)
+                    items.append({"_raw": raw, "text": "x", "start": s, "end": max(e, s + 0.05),
                                   "style": style, "pos": pos, "anim": "none"})
                 elif j == 0:
                     items.append({"text": " ".join(x["word"].strip() for x in group),

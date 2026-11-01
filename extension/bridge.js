@@ -47,12 +47,14 @@ async function run(cmd, a) {
 
   if (cmd === 'ensure_tab') {
     const tabs = await chrome.tabs.query({});
-    const t = tabs.find(x => x.url && x.url.startsWith(a.match));
+    // Flow moved from labs.google/fx/tools/flow to flow.google.com: accept every given prefix.
+    const prefixes = [].concat(a.match);
+    const t = tabs.find(x => x.url && prefixes.some(p => x.url.startsWith(p)));
     if (t) { flowTab = t.id; return { url: t.url, opened: false }; }
     const n = await chrome.tabs.create({ url: a.url, active: true });
     flowTab = n.id;
     await waitComplete(n.id);
-    return { url: a.url, opened: true };
+    return { url: (await chrome.tabs.get(n.id)).url || a.url, opened: true };
   }
   if (!flowTab) throw new Error('No Flow tab yet (call ensure_tab first).');
 
