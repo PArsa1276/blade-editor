@@ -131,13 +131,14 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
     k = max(1, int(style.get("cut_every", 1)))
     marks = [0.0] + [b for b in beats[k - 1::k] if 0.2 < b < total - 0.2] + [total]
     # In loud sections, cut twice as often (when the grid is coarse).
-    if k >= 2 and loud:
+    # Only when the track has a clearly louder part (3 dB over the median); else keep the grid.
+    if k >= 2 and loud and np.percentile(loud, 75) > np.median(loud) + 3:
         q = np.percentile(loud, 75)
         dense = [0.0]
         for a, b in zip(marks[:-1], marks[1:]):
             mid = [x for x in beats if a < x < b]
             sec = int(a)
-            if sec < len(loud) and loud[sec] >= q and mid:
+            if sec < len(loud) and loud[sec] > q and mid:
                 dense.append(mid[len(mid) // 2])
             dense.append(b)
         marks = sorted(set(round(m, 3) for m in dense))
