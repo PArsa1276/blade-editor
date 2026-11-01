@@ -192,7 +192,18 @@ class _CDP:
     async def download(self, key: str, info: dict, out: Path) -> bool:
         return await _download(self.page, key, info, out)
 
+    async def probe(self) -> dict:
+        return await self.page.evaluate("""() => {
+          const vis = (el) => el && el.offsetParent !== null;
+          return {prompt_box: [...document.querySelectorAll('[contenteditable="true"], textarea')].some(vis),
+                  title: document.title, url: location.href,
+                  buttons: [...document.querySelectorAll('button, a[role="button"]')].filter(vis)
+                    .map(b => (b.getAttribute('aria-label') || b.innerText || '').trim().slice(0, 40))
+                    .filter(Boolean).slice(0, 20)};
+        }""")
+
     async def shot(self) -> bytes:
+        self.shot_error = None
         return await self.page.screenshot(type="jpeg", quality=60)
 
     async def wait(self, s: float) -> None:
@@ -233,11 +244,16 @@ class _Ext:
         out.write_bytes(base64.b64decode(r["b64"]))
         return True
 
+    async def probe(self) -> dict:
+        return await self.b.call("probe")
+
     async def shot(self) -> bytes | None:
+        self.shot_error = None
         try:
             return base64.b64decode((await self.b.call("screenshot"))["b64"])
-        except RuntimeError:
-            return None  # e.g. the Chrome window is minimised
+        except RuntimeError as e:
+            self.shot_error = str(e)  # e.g. the Chrome window is minimised
+            return None
 
     async def wait(self, s: float) -> None:
         import asyncio
@@ -270,7 +286,16 @@ async def _driver(port: int = 0, wait: float = 35):
 async def status(port: int = 0) -> dict:
     d = await _driver(port)
     try:
-        return {"connected": True, "via": d.name, "url": d.url, "_screenshot": await d.shot()}
+        p = await d.probe()
+        shot = await d.shot()
+        r = {"connected": True, "via": d.name, "url": p.get("url") or d.url, "title": p.get("title"),
+             "project_open": bool(p.get("prompt_box")), "buttons": p.get("buttons", []), "_screenshot": shot}
+        if not r["project_open"]:
+            r["message"] = ("Flow is open but no project is open (no prompt box on the page). Ask the user to "
+                            "open or create a project in the Flow tab, then call flow_status again.")
+        if shot is None:
+            r["screenshot_error"] = getattr(d, "shot_error", None)
+        return r
     finally:
         await d.close()
 

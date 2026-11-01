@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Blade Bridge",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Lets the Blade Editor app on this computer make Google Flow clips in this Chrome, with your own login.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2cQJXkQaYUvz40XmCo0g5XdVBPbGOLE5B6BZzSmlNVx7T10S6AxL649AfIk0xgP2yngj0yvqm4fGbKVnaCp2P2LUCjYkcHlIP85zlkC9JE8sdILCS4igGAdWHcqfT91eQmKpIgzKplORPZAqliojvLvj6240587D0swdpi2DzOt+iMq+dcuuCaugpzUje1L+vkRkNCkKDXddpgc3zu21Ga/rmkyNBRViSXaMtymFGKRc5xD2av2AxWdKjp8lpJzeGas8ccvur2TbEFDEVJLbjj+dgce/KMbv2t/WW2Qo0iRNEuWlJ9fgUvsQxpbLG7KqW78Fl5A3y1KaSb8Je4juSwIDAQAB",
   "permissions": [

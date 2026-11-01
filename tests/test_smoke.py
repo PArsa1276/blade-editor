@@ -217,3 +217,12 @@ def test_transcript_fix_and_jump_cut_remap(tmp_path):
     edl = {"output": {"path": str(tmp_path / "o.mp4"), "width": 320, "height": 240},
            "clips": [{"src": "color:black", "duration": 1}], "texts": [str(f), {"text": "t", "start": 0, "end": 1}]}
     assert len(render.normalize(edl)["texts"]) == 2
+
+
+def test_no_bpm_without_a_beat(tmp_path):
+    from blade_editor import audio
+    for name, src in (("quiet", "anoisesrc=a=0.002:d=5"), ("tone", "sine=f=200:d=5")):
+        f = tmp_path / f"{name}.wav"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", src, str(f)], check=True)
+        r = audio.analyze_beats(str(f))
+        assert r["bpm"] is None and r["beats"] == [] and r["note"]

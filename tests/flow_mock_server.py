@@ -20,6 +20,8 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_response(200); self.send_header("Content-Type", "video/mp4")
             self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data)
         else:
-            b = PAGE.encode(); self.send_response(200); self.send_header("Content-Type", "text/html")
+            # Flow's home page (no project open) has no prompt box.
+            b = (PAGE.split('<div contenteditable')[0] + "</body></html>" if self.path.endswith("/home")
+                 else PAGE).encode(); self.send_response(200); self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
 http.server.ThreadingHTTPServer(("127.0.0.1", int(sys.argv[2])), H).serve_forever()

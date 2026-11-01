@@ -202,6 +202,8 @@ def analyze_video(path: str, project: str | None = None, max_fps: float = 30.0,
     if "audio" in r:
         reply["audio"] = {k: r["audio"][k] for k in ("bpm", "beat_interval", "downbeats")}
         reply["audio"]["beats"] = r["audio"]["beats"][:200]
+        if r["audio"].get("note"):
+            reply["audio"]["note"] = r["audio"]["note"]
     reply["saved_json"] = saved
     return reply
 

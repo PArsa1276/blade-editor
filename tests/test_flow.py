@@ -85,6 +85,16 @@ def test_flow_through_blade_bridge_extension(tmp_path, monkeypatch):
     ]
     try:
         async def run():
+            home = f"http://127.0.0.1:{web}/fx/tools/flow/home"
+            monkeypatch.setattr(flow, "FLOW_URL", home)
+            monkeypatch.setattr(flow, "FLOW_MATCH", [home])
+            st = await flow.status()
+            assert st["project_open"] is False and "no project is open" in st["message"]
+            project = home.replace("/home", "/project/x")
+            monkeypatch.setattr(flow, "FLOW_URL", project)
+            monkeypatch.setattr(flow, "FLOW_MATCH", [project])
+            st = await flow.status()
+            assert st["project_open"] is True and "message" not in st
             dry = await flow.generate_video("a cat", tmp_path / "out", confirm=False)
             assert dry["via"] == "blade-bridge-extension" and not dry["credits_spent"]
             return await flow.generate_video("a cat", tmp_path / "out", confirm=True, timeout=40, poll=1)
