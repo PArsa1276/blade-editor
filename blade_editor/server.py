@@ -14,7 +14,7 @@ from typing import Any
 from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, qa, render, sfx, text
+from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, qa, recipes, render, sfx, text
 
 HOME = Path(os.environ.get("BLADE_HOME", Path.home() / "blade_projects")).expanduser()
 
@@ -23,6 +23,10 @@ Blade Editor edits video locally with ffmpeg. Free, no credit limits.
 
 FIRST: call `start_here` once per conversation. If first_use=true, ask the user (in their
 language) if they want the short guide; if yes, call `guide` and translate it fully.
+
+IDEAS: for a creative edit, call `edit_ideas` with the user's request first and build on the best
+recipe (structure, rhythm, the "wow" trick) - adapted to the footage and the user's words.
+`learn_edit` saves a reference the user likes as a new recipe.
 
 DECIDE BEFORE THE FIRST RENDER: run `reference_breakdown` (when there is a reference) and
 `view_frames` on the reference and sources. Map each part to a tool: camera moves -> `camera`
@@ -339,17 +343,51 @@ def style_from_reference(reference_path: str, project: str | None = None) -> dic
 
 
 @mcp.tool()
+def edit_ideas(request: str, count: int = 3) -> dict:
+    """Ideas library: proven edit formats (beat-sync flash, velocity, aura, cinematic travel,
+    glitch, UGC hook, before/after, 3D spin, kinetic type, POV, smooth, sport) plus the user's own
+    recipes from learn_edit, best matches first. Each recipe gives structure, cut rhythm, camera,
+    transitions, effects, text, grade, sfx, the Blade calls to build it and one 'wow' trick. Use it
+    BEFORE planning a creative edit: combine the best recipe with the user's request and footage
+    (do not copy it blindly; the user's words win)."""
+    return {"ideas": recipes.ideas(request, count)}
+
+
+@mcp.tool()
+def learn_edit(reference_path: str, name: str, tags: str = "", notes: str = "",
+               project: str | None = None) -> dict:
+    """Learn an edit the user likes (a reference video, e.g. downloaded from a CapCut template
+    page or TikTok Creative Center) and save it as a reusable recipe in the ideas library. Its
+    measured style can then be used as auto_edit(style=<name>). tags: words to find it by (mood,
+    genre). notes: what makes it special (write what you saw with view_frames)."""
+    r = autoedit.style_from_reference(_abs(reference_path))
+    s = r["reference_analysis"]["summary"]
+    recipe = {"tags": tags, "notes": notes, "idea": notes or f"Learned from {Path(reference_path).name}",
+              "style": r["style"], "measured": {k: s.get(k) for k in (
+                  "cuts_per_second", "median_shot_length", "flashes_per_second", "shake_share",
+                  "moving_camera_share", "cuts_on_beat_share")},
+              "build": [f"auto_edit(style='{name}')", "or render_edl using the measured rhythm"],
+              "reference": _abs(reference_path)}
+    path = recipes.save(name, recipe)
+    _save(_project(project), f"recipe_{path.stem}", recipe)
+    return {"saved": str(path), "name": path.stem, "style": r["style"], "measured": recipe["measured"]}
+
+
+@mcp.tool()
 def auto_edit(sources: list[str], music: str, output_path: str,
               style: str | dict = "hype", duration: float | None = None, music_start: float = 0.0,
               width: int = 1080, height: int = 1920, fps: int = 30, title: str | None = None,
               keep_order: bool = False, seed: int = 7, preview: bool = False,
               project: str | None = None) -> dict:
     """Make a beat-synced edit from your clips and a music track in one call.
-    style: a preset name (hype, phonk, cinematic, smooth, glitch), a style dict from
-    style_from_reference, or a path to a reference video. The EDL is saved so you can change it
-    and call render_edl again."""
+    style: a preset name (hype, phonk, cinematic, smooth, glitch), a recipe saved with learn_edit,
+    a style dict from style_from_reference, or a path to a reference video. The EDL is saved so you
+    can change it and call render_edl again."""
     src = [_abs(s) for s in sources]
-    if isinstance(style, str) and style not in autoedit.PRESETS:
+    saved = {r["name"]: r for r in recipes.user_recipes() if r.get("style")}
+    if isinstance(style, str) and style in saved:
+        style = saved[style]["style"]
+    elif isinstance(style, str) and style not in autoedit.PRESETS:
         style = autoedit.style_from_reference(_abs(style))["style"]
     out = str(Path(output_path).expanduser().resolve())
     edl = autoedit.build_edl(src, _abs(music), out, style, duration, music_start, width, height, fps,
@@ -539,20 +577,25 @@ async def flow_status(port: int = 0) -> list:
 
 @mcp.tool()
 async def flow_generate_video(prompt: str, confirm: bool = False, port: int = 0, direct: bool = True,
-                              timeout: float = 600, project: str | None = None) -> list:
+                              timeout: float = 90, force_new: bool = False, project: str | None = None) -> list:
     """Generate a video clip with Google Flow (Veo) in your logged-in Chrome.
     confirm=false (default) only types the prompt and returns a screenshot; no credits are spent.
     Ask the user, then call with confirm=true to submit; the new video is downloaded to the
     project folder and can be used as a clip `src` in an EDL. Blade Editor never approves credit
-    dialogs; if Flow shows one, the user approves it in the browser."""
+    dialogs; if Flow shows one, the user approves it in the browser. It waits at most `timeout`
+    seconds; status "generating" means: call flow_collect (never generate again - the sent clip
+    is remembered even if Blade restarts, and a second confirm is refused unless force_new=true
+    after the user asks for a new clip)."""
     out = _project(project) / "flow"
-    return _with_shot(await flow.generate_video(prompt, out, confirm, port, direct, timeout))
+    return _with_shot(await flow.generate_video(prompt, out, confirm, port, direct, timeout,
+                                                force_new=force_new))
 
 
 @mcp.tool()
-async def flow_collect(port: int = 0, limit: int = 4, project: str | None = None) -> dict:
-    """Download the newest videos visible in the Flow tab (use after a flow_generate_video timeout)."""
-    return await flow.collect(_project(project) / "flow", port, limit)
+async def flow_collect(port: int = 0, limit: int = 4, wait: float = 90, project: str | None = None) -> list:
+    """Wait (up to `wait` s) for the clip sent by flow_generate_video and download it; call again
+    while status is "generating". With no clip waiting, downloads the newest videos in Flow."""
+    return _with_shot(await flow.collect(_project(project) / "flow", port, limit, wait))
 
 
 def _config_files() -> list[Path]:

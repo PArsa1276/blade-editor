@@ -56,6 +56,7 @@ Complete beginners: follow [INSTALL.md](INSTALL.md) (English) or [INSTALL_FA.md]
 | `auto_edit` | Beat-synced edit in one call, in a preset style (`hype`, `phonk`, `cinematic`, `smooth`, `glitch`) or in the style of a reference video |
 | `render_edl` | Full control with a JSON edit list; preview at half size first; unchanged clips are cached, so changes render fast |
 | `speech_segments` | Finds the parts with speech for jump cuts (pause removal) |
+| `edit_ideas`, `learn_edit` | **Ideas library**: 12 proven edit formats (beat-sync flash, velocity, aura, cinematic travel, glitch, UGC hook, before/after, 3D spin, kinetic type, POV, smooth, sport) with structure, rhythm, camera, effects and one "wow" trick each; `learn_edit` turns any edit you like (e.g. a CapCut template preview or a TikTok Creative Center ad) into your own reusable recipe |
 | `transcribe` -> `fix_transcript` -> `make_caption_texts` | Captions in 3 steps: Whisper - **your choice of model** (`speech_models`: large-v3-turbo by default, large-v3, medium, small, your own OpenAI Whisper `.pt` file such as large-v3.pt, or a faster-whisper folder; the choice is saved) - writes the text with word times and marks unsure words; **the AI reads and corrects it** (misheard words, names, Persian spelling), times are re-aligned; then karaoke captions that also follow jump cuts |
 | `make_sfx` | Generated sound effects: whoosh, hit, riser, click, glitch, boom, swish |
 | `camera_preset` | Smooth ready-made camera moves: 360 spin with stops, sway, whip, zoom pulse, tilt swing |

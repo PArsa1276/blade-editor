@@ -254,3 +254,13 @@ def test_speech_model_choice_and_openai_pt(tmp_path, monkeypatch):
     r = captions.transcribe(str(wav), "fa")
     assert seen["m"] == str(pt) and seen["word_timestamps"] and r["segments"][0]["words"][0]["p"] == 0.4
     assert "[[سلام]]" in captions.review_text(r)
+
+
+def test_edit_ideas_and_user_recipes(tmp_path, monkeypatch):
+    from blade_editor import recipes
+    monkeypatch.setattr(recipes, "USER_DIR", tmp_path)
+    assert recipes.ideas("slow motion speed ramp dance")[0]["name"] == "velocity_edit"
+    assert recipes.ideas("travel vlog trip")[0]["name"] == "cinematic_travel"
+    recipes.save("My Car Edit", {"tags": "car night drift", "style": {"cut_every": 1}})
+    top = recipes.ideas("night car drift edit")[0]
+    assert top["name"] == "my_car_edit" and top["source"] == "user"
