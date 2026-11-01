@@ -45,7 +45,13 @@ Rendered clip segments are cached, so a small change to the edit list renders fa
 
 ## Install
 
-You need Python 3.10+ and ffmpeg.
+Easiest: run the installer in this folder. It installs Python/ffmpeg when missing, puts
+Shamshir in `~/.shamshir/venv` and connects it to Claude Code.
+
+- Windows: `powershell -ExecutionPolicy Bypass -File install.ps1`
+- macOS / Linux: `bash install.sh`
+
+Manual install (Python 3.10+ and ffmpeg needed):
 
 ```bash
 pip install -e .                 # from this folder
