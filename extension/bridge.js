@@ -98,6 +98,21 @@ async function run(cmd, a) {
     return { items: r.flat().filter(Boolean) };
   }
 
+  if (cmd === 'probe') {
+    // What the Flow page shows: a prompt box means a project is open (home page has none).
+    const r = await inTab(() => {
+      const vis = (el) => el && el.offsetParent !== null;
+      return {
+        prompt_box: [...document.querySelectorAll('[contenteditable="true"], textarea')].some(vis),
+        title: document.title,
+        buttons: [...document.querySelectorAll('button, a[role="button"]')].filter(vis)
+          .map(b => (b.getAttribute('aria-label') || b.innerText || '').trim().slice(0, 40)).filter(Boolean).slice(0, 20),
+      };
+    });
+    const tab = await chrome.tabs.get(flowTab);
+    return Object.assign({ url: tab.url }, r.find(x => x && x.prompt_box) || r[0] || {});
+  }
+
   if (cmd === 'dialog') {
     const r = await inTab(() => [...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')]
       .some(el => el.offsetParent !== null));
@@ -127,6 +142,7 @@ async function run(cmd, a) {
     const tab = await chrome.tabs.get(flowTab);
     await chrome.tabs.update(flowTab, { active: true });
     await chrome.windows.update(tab.windowId, { focused: true });
+    if (tab.status !== 'complete') await waitComplete(flowTab);
     const d = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 60 });
     return { b64: d.split(',', 2)[1] };
   }

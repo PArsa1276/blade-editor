@@ -191,6 +191,15 @@ def normalize(edl: dict) -> dict:
     edl = dict(edl)
     edl["output"], edl["clips"] = out, clips
     edl.setdefault("texts", [])
+    # A string in `texts` is a file from make_caption_texts: its items are added here.
+    texts = []
+    for it in edl["texts"]:
+        if isinstance(it, str):
+            data = json.loads(Path(it).expanduser().read_text(encoding="utf-8"))
+            texts += data["texts"] if isinstance(data, dict) else data
+        else:
+            texts.append(it)
+    edl["texts"] = texts
     edl.setdefault("global_effects", [])
     effects.validate(edl["global_effects"])
     edl.setdefault("sfx", [])

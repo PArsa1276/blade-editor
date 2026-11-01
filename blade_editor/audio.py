@@ -130,6 +130,16 @@ def analyze_beats(path: str, start: float = 0.0, duration: float | None = None) 
         rms = float(np.sqrt(np.mean(seg ** 2))) if len(seg) else 0.0
         loud.append(round(20 * np.log10(max(rms, 1e-6)), 1))
 
+    # Silence, room noise or a single sound has no tempo: say so instead of a made-up BPM.
+    note = None
+    if max(loud, default=-120) < -45:
+        note = "The audio is (almost) silent: no beat."
+    elif len(beats) < 4:
+        note = f"No regular beat found ({len(beats)} beat(s)): no BPM."
+    if note:
+        return {"has_audio": True, "bpm": None, "beat_interval": None, "beats": [], "downbeats": [],
+                "onsets": onsets, "loudness_per_second": loud, "note": note}
+
     return {
         "has_audio": True,
         "bpm": round(bpm, 2),

@@ -35,6 +35,11 @@ TRUST MEASUREMENTS: cuts from `analyze_video` are measured; check doubts once wi
 `verify_cuts`, re-run at most once with `sensitivity`. Repeated analysis of a file is refused
 (`limit_reached`): accept the earlier result. At most 2 previews and 2 revision rounds.
 
+CAPTIONS (3 steps, never skip step 2): `transcribe` (set language; put spoken names/topic words in
+`prompt`) -> read every `review` line and correct misheard words, names, spelling and
+punctuation with `fix_transcript` (only changed lines; keep the spoken words, do not summarise)
+-> `make_caption_texts(transcript_path, keep=<jump-cut pairs>)` -> put its texts_file in `texts`.
+
 Loop: preview with render_edl(preview=true) -> view_frames -> final -> quality_check (+
 compare_videos with a reference). Times are seconds; clip effect times are from the clip start;
 texts/sfx/overlays/global_effects use output time. Persian/Arabic text and colour emoji work.
@@ -197,6 +202,8 @@ def analyze_video(path: str, project: str | None = None, max_fps: float = 30.0,
     if "audio" in r:
         reply["audio"] = {k: r["audio"][k] for k in ("bpm", "beat_interval", "downbeats")}
         reply["audio"]["beats"] = r["audio"]["beats"][:200]
+        if r["audio"].get("note"):
+            reply["audio"]["note"] = r["audio"]["note"]
     reply["saved_json"] = saved
     return reply
 
@@ -411,21 +418,56 @@ def compare_videos(reference: str, output: str, count: int = 8, project: str | N
 
 
 @mcp.tool()
-def transcribe(path: str, language: str | None = None, model: str = "small", device: str = "auto",
-               project: str | None = None) -> dict:
-    """Speech to text with word times (needs faster-whisper). Use the segments with
-    make_caption_texts to get karaoke-style captions for an EDL. device: auto (falls back to the
-    CPU when the GPU's CUDA libraries are missing), cpu or cuda."""
-    r = captions.transcribe(_abs(path), language, model, device)
-    r["saved_json"] = _save(_project(project), f"transcript_{Path(path).stem}", r)
-    return r
+def transcribe(path: str, language: str | None = None, model: str = captions.DEFAULT_MODEL,
+               device: str = "auto", prompt: str | None = None, project: str | None = None) -> dict:
+    """Step 1 of captions: speech to text with word times (needs faster-whisper). The full result
+    is saved to `transcript_path`; you get `review`: one numbered line per segment, unsure words
+    in [[ ]]. READ IT and correct it with `fix_transcript` before captions (step 2).
+    language: e.g. "fa", "en" (set it; detection can be wrong). prompt: names, brands and topic
+    words that are spoken (helps the recogniser spell them). model: large-v3-turbo (default, best;
+    downloaded once, ~1.6 GB), medium, small (fast, weak for Persian). device: auto (falls back to
+    the CPU when the GPU's CUDA libraries are missing), cpu or cuda."""
+    r = captions.transcribe(_abs(path), language, model, device, prompt)
+    tp = _save(_project(project), f"transcript_{Path(path).stem}", r)
+    unsure = sum(w.get("p", 1) < 0.5 for s in r["segments"] for w in s.get("words") or [])
+    return {"language": r["language"], "duration": r["duration"], "device": r["device"], "model": model,
+            "transcript_path": tp, "segments": len(r["segments"]), "unsure_words": unsure,
+            "review": captions.review_text(r),
+            "next": "Check every line against the meaning, the topic and the language's spelling; "
+                    "then call fix_transcript with only the lines that need changes."}
 
 
 @mcp.tool()
-def make_caption_texts(segments: list[dict], style: str = "subtitle", pos: str = "lower",
-                       karaoke: bool = True, max_words: int = 4, offset: float = 0.0) -> dict:
-    """Turn transcript segments [{start,end,text,words[]}] into EDL `texts` items. Karaoke mode
-    highlights the spoken word. `offset` moves all times (use it when the clip starts later)."""
+def fix_transcript(transcript_path: str, fixes: dict[str, str]) -> dict:
+    """Step 2 of captions: apply YOUR corrections to a transcript. fixes: {"segment number":
+    "corrected full text of that line"} - only lines that change; "" removes a line (noise,
+    hallucinated text). Fix misheard words, names, spelling (Persian: ی/ک, half-spaces), and
+    punctuation; keep the spoken words and their order (do not summarise or translate). Word times
+    are re-aligned to the new words. Saves a new file; give its path to make_caption_texts."""
+    src = Path(_abs(transcript_path))
+    tr = captions.apply_fixes(json.loads(src.read_text(encoding="utf-8")), fixes)
+    out = src.with_name(src.stem.removesuffix("_fixed") + "_fixed.json")
+    out.write_text(json.dumps(tr, ensure_ascii=False, indent=1), encoding="utf-8")
+    return {"transcript_path": str(out), "changed": len(fixes), "review": captions.review_text(tr)}
+
+
+@mcp.tool()
+def make_caption_texts(transcript_path: str | None = None, segments: list[dict] | None = None,
+                       style: str = "subtitle", pos: str = "lower", karaoke: bool = True,
+                       max_words: int = 4, offset: float = 0.0, keep: list[list[float]] | None = None,
+                       project: str | None = None) -> dict:
+    """Step 3 of captions: turn a (corrected) transcript into EDL `texts` items, saved to
+    `texts_file`. Put that path as a string inside the EDL `texts` list (it can sit next to other
+    text items): "texts": ["<texts_file>", {"text": "Title", ...}]. Karaoke highlights the spoken
+    word. keep: the [in, out] source pairs of a jump-cut edit (from speech_segments, in clip
+    order): times are moved onto the edited timeline and words in removed parts are dropped.
+    offset: moves all times (when the clip starts later in the edit)."""
+    if transcript_path:
+        segments = json.loads(Path(_abs(transcript_path)).read_text(encoding="utf-8"))["segments"]
+    if not segments:
+        raise ValueError("Give transcript_path (from transcribe or fix_transcript) or segments.")
+    if keep:
+        segments = captions.remap(segments, keep)
     segs = []
     for s in segments:
         s = dict(s)
@@ -433,7 +475,11 @@ def make_caption_texts(segments: list[dict], style: str = "subtitle", pos: str =
         s["end"] = s["end"] + offset
         s["words"] = [dict(w, start=w["start"] + offset, end=w["end"] + offset) for w in s.get("words", [])]
         segs.append(s)
-    return {"texts": text.captions_to_items(segs, style, pos, karaoke, max_words)}
+    items = text.captions_to_items(segs, style, pos, karaoke, max_words)
+    path = _save(_project(project), "captions", {"texts": items})
+    return {"texts_file": path, "count": len(items),
+            "span": [items[0]["start"], items[-1]["end"]] if items else None,
+            "use": f'"texts": ["{path}"]'}
 
 
 @mcp.tool()

@@ -12,7 +12,7 @@ license = "MIT"
 dependencies = ["mcp>=2,<3", "numpy>=1.24", "pillow>=10", "websockets>=12"]
 
 [project.optional-dependencies]
-captions = ["faster-whisper>=1.0"]
+captions = ["faster-whisper>=1.1"]
 flow = ["playwright>=1.40"]
 test = ["pytest>=8"]
 

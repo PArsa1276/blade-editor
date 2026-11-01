@@ -193,3 +193,36 @@ def test_rtl_karaoke_runs_in_visual_order():
     raw = [i["_raw"] for i in text.captions_to_items([{"start": 0, "end": 1.5, "text": "", "words": words}])]
     # libass puts colour runs left to right, so for Persian the later words come first.
     assert raw[1] == "{\\fsp0}سه {\\1c&H00E6FF&}دو{\\1c&HFFFFFF&} یک"
+
+
+def test_transcript_fix_and_jump_cut_remap(tmp_path):
+    import json
+    from blade_editor import captions, render
+    tr = {"segments": [{"start": 1.0, "end": 3.0, "text": "salam dost aziz",
+                        "words": [{"start": 1.0, "end": 1.5, "word": " salam", "p": 0.9},
+                                  {"start": 1.6, "end": 2.2, "word": " dost", "p": 0.3},
+                                  {"start": 2.3, "end": 3.0, "word": " aziz", "p": 0.9}]},
+                       {"start": 5.0, "end": 6.0, "text": "noise", "words": []}]}
+    assert "[[dost]]" in captions.review_text(tr)
+    fixed = captions.apply_fixes(tr, {"0": "salam doostane aziz man", "1": ""})
+    w = fixed["segments"][0]["words"]
+    assert len(fixed["segments"]) == 1 and [x["word"].strip() for x in w] == ["salam", "doostane", "aziz", "man"]
+    assert w[0]["start"] == 1.0 and w[1]["start"] == 1.6  # kept and replaced words keep their times
+    assert all(a["end"] <= b["start"] + 1e-6 for a, b in zip(w, w[1:]))
+    # Jump cut keeps 0.5-1.55 and 2.25-3.5: "salam" moves to 0.5, the cut word "doostane" goes.
+    m = captions.remap(fixed["segments"], [[0.5, 1.55], [2.25, 3.5]])[0]["words"]
+    assert [x["word"].strip() for x in m] == ["salam", "aziz", "man"] and m[0]["start"] == 0.5
+    f = tmp_path / "c.json"
+    f.write_text(json.dumps({"texts": [{"text": "hi", "start": 0, "end": 1}]}))
+    edl = {"output": {"path": str(tmp_path / "o.mp4"), "width": 320, "height": 240},
+           "clips": [{"src": "color:black", "duration": 1}], "texts": [str(f), {"text": "t", "start": 0, "end": 1}]}
+    assert len(render.normalize(edl)["texts"]) == 2
+
+
+def test_no_bpm_without_a_beat(tmp_path):
+    from blade_editor import audio
+    for name, src in (("quiet", "anoisesrc=a=0.002:d=5"), ("tone", "sine=f=200:d=5")):
+        f = tmp_path / f"{name}.wav"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", src, str(f)], check=True)
+        r = audio.analyze_beats(str(f))
+        assert r["bpm"] is None and r["beats"] == [] and r["note"]
