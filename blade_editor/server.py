@@ -461,9 +461,9 @@ def _with_shot(r: dict) -> list:
 @mcp.tool()
 def flow_setup(port: int = 0) -> dict:
     """How to connect Google Flow (AI video with your own Google account and credits) through
-    YOUR normal Chrome: turn on chrome://inspect/#remote-debugging, open a Flow project, Allow.
-    port=0 (default) finds your Chrome by itself; a number connects to a Chrome started with
-    --remote-debugging-port."""
+    YOUR normal Chrome: install the Blade Bridge extension once (no other setting); Blade opens the
+    Flow tab itself. Fallback: chrome://inspect/#remote-debugging. A port number connects to a
+    Chrome started with --remote-debugging-port."""
     return flow.setup_help(port)
 
 

@@ -57,7 +57,9 @@ issues; with a reference, `compare_videos` cuts/s and flashes/s within about 30%
 reference. Report the path, what matches, and the honest limits.
 
 - Kinetograph needs no setup: `motion_graphic` installs it by itself on first use (needs Node.js).
-- Google Flow: the user turns on `chrome://inspect/#remote-debugging` once; Blade opens the Flow tab itself.
+- Google Flow: through the Blade Bridge extension (loaded once from ~/.blade-editor/chrome-extension);
+  Blade opens the Flow tab itself. If `flow_status` says it is not connected, give the user
+  `flow_setup` steps.
 
 ## Gotchas
 

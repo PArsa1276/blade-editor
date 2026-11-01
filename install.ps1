@@ -37,6 +37,9 @@ Say "Connecting Blade Editor to Claude (app and Claude Code)"
 if ($LASTEXITCODE -ne 0) { Write-Host "Could not write the Claude settings. Quit the Claude app and run this file again."; exit 1 }
 New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null
 Copy-Item -Recurse -Force "skill\*" "$HOME\.claude\skills\"
+Remove-Item -Recurse -Force "$HOME\.blade-editor\chrome-extension" -ErrorAction SilentlyContinue
+Copy-Item -Recurse -Force "extension" "$HOME\.blade-editor\chrome-extension"
+Write-Host "OK: Chrome extension (Blade Bridge) in $HOME\.blade-editor\chrome-extension"
 Say "Optional: Node.js + Kinetograph (animated titles and 3D graphics)"
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements

@@ -30,9 +30,10 @@ When you like it: "final version and quality check". The file is in your folder.
 
 ## 5. Google Flow (optional)
 
-In your normal Chrome open `chrome://inspect/#remote-debugging` and turn it on, then ask for a
-clip; Blade opens Google Flow in a new tab by itself. Chrome asks you to **Allow** the connection. You see the
-prompt first; credits are spent only after you say yes. Automating Flow may be against Google's
+One time, add the **Blade Bridge** extension to your normal Chrome: open `chrome://extensions`,
+turn on **Developer mode**, click **Load unpacked** and choose the folder `.blade-editor/chrome-extension`
+in your home folder. After that just ask for a clip: Blade opens Google Flow itself, with your
+own Google login. You see the prompt first; credits are spent only after you say yes. Automating Flow may be against Google's
 terms - your choice.
 
 ## 6. If something is wrong

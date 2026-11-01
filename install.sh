@@ -31,6 +31,8 @@ SPY="$HOME/.blade-editor/venv/bin/python"
 say "Connecting Blade Editor to Claude (app and Claude Code)"
 "$SPY" -m blade_editor.server --register
 mkdir -p "$HOME/.claude/skills" && cp -R skill/* "$HOME/.claude/skills/"
+rm -rf "$HOME/.blade-editor/chrome-extension" && cp -R extension "$HOME/.blade-editor/chrome-extension"
+echo "OK: Chrome extension (Blade Bridge) in ~/.blade-editor/chrome-extension"
 echo "OK: connected"
 
 say "Optional: Node.js + Kinetograph (animated titles and 3D graphics)"
