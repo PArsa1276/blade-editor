@@ -226,3 +226,31 @@ def test_no_bpm_without_a_beat(tmp_path):
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", src, str(f)], check=True)
         r = audio.analyze_beats(str(f))
         assert r["bpm"] is None and r["beats"] == [] and r["note"]
+
+
+def test_speech_model_choice_and_openai_pt(tmp_path, monkeypatch):
+    import sys
+    import types
+    from blade_editor import captions
+    monkeypatch.setattr(captions, "SETTINGS", tmp_path / "settings.json")
+    monkeypatch.setenv("BLADE_WHISPER_DIRS", str(tmp_path))
+    pt = tmp_path / "large-v3.pt"
+    pt.write_bytes(b"x")
+    assert {"model": str(pt), "kind": "openai-whisper .pt", "gb": 0.0} in captions.find_local_models()
+    captions.save_model(str(pt))
+    assert captions.saved_model() == str(pt)
+    # Fake openai-whisper and torch: check that the saved .pt file goes to that backend.
+    seen = {}
+
+    class M:
+        def transcribe(self, audio, **kw):
+            seen.update(kw)
+            return {"language": "fa", "segments": [{"start": 0.0, "end": 1.0, "text": " سلام",
+                    "words": [{"start": 0.0, "end": 1.0, "word": " سلام", "probability": 0.4}]}]}
+    monkeypatch.setitem(sys.modules, "whisper", types.SimpleNamespace(load_model=lambda m, device: seen.update(m=m) or M()))
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False)))
+    wav = tmp_path / "a.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=d=1", str(wav)], check=True)
+    r = captions.transcribe(str(wav), "fa")
+    assert seen["m"] == str(pt) and seen["word_timestamps"] and r["segments"][0]["words"][0]["p"] == 0.4
+    assert "[[سلام]]" in captions.review_text(r)
