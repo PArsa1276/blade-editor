@@ -171,7 +171,11 @@ def capabilities() -> dict:
                        "transition: 'cut' | 'flash' | 'zoom' | 'glitch' | 'whip' | any ffmpeg xfade name, "
                        "or {type, dur}}",
             "texts[]": "{text (emoji become colour stickers above the text), start, end, style, pos ('top','upper','center','lower','bottom','top_left',...) "
-                       "or [x,y] fractions, anim, size, color '#RRGGBB', outline_color, font, rotate}",
+                       "or [x,y] fractions, anim, size, color '#RRGGBB', outline_color, font, rotate, "
+                       "behind_subject=false (true: the text goes BEHIND the person/object in the shot - big "
+                       "bold titles wider than the subject look best; the subject is found by a local AI "
+                       "model, about 0.1-0.3 s per frame inside the text's time)}. Top-level "
+                       "subject_model: u2net (any subject, default) | u2net_human_seg (people) | silueta (fast)",
             "global_effects[]": "same effect objects, times in output seconds",
             "overlays[]": "{src (png/jpg/video or 'emoji:🔥'), start, end, x, y (0..1 centre), width (fraction of frame), opacity}",
             "audio": "{music, music_start, volume, fade_in, fade_out, keep_clip_audio, clip_audio_volume, duck, normalize=true (-14 LUFS)}",
@@ -488,6 +492,20 @@ def restore_version(output_path: str, version: int, preview: bool = False, proje
 
 _render_edl = render_edl
 render_edl = mcp.tool()(render_edl)
+
+
+@mcp.tool()
+def subject_cutout(path: str, output_path: str, background: str = "transparent", model: str = "u2net",
+                   start: float = 0.0, duration: float | None = None) -> dict:
+    """Cut the main subject (person, animal, car, product) out of a clip with a local AI model.
+    background: "transparent" (ProRes 4444 .mov with alpha - put it in `overlays`, e.g. over
+    another clip), "blur", a colour ("#101010", "white") or an image/video file (new background).
+    model: u2net (any subject), u2net_human_seg (people), silueta (faster). The model is
+    downloaded once (43-176 MB). For text behind the subject use texts[].behind_subject instead."""
+    from . import subject
+    bg = background if background in ("transparent", "blur") or not Path(background).expanduser().exists() \
+        else _abs(background)
+    return subject.cutout(_abs(path), str(Path(output_path).expanduser().resolve()), bg, model, start, duration)
 
 
 @mcp.tool()

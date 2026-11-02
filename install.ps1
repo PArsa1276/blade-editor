@@ -27,7 +27,7 @@ Say "Installing Blade Editor into its own folder ($HOME\.blade-editor\venv)"
 py -3 -m venv "$HOME\.blade-editor\venv"
 $spy = "$HOME\.blade-editor\venv\Scripts\python.exe"
 & $spy -m pip install -q --upgrade pip
-& $spy -m pip install -q ".[captions]"
+& $spy -m pip install -q ".[captions,subject]"
 & $spy -c "import blade_editor.server"
 if ($LASTEXITCODE -ne 0) { Write-Host "Blade Editor could not be installed. Send the text above to your assistant."; exit 1 }
 Write-Host "OK: Blade Editor installed"

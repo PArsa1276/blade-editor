@@ -406,6 +406,28 @@ def render(edl: dict, work_dir: str | Path, preview: bool = False) -> dict:
         graph.append(f"[{cur_v}][ov{j}]overlay=x='{x:.3f}*W-w/2':y='{y:.3f}*H-h/2':eof_action=pass:"
                      f"enable='between(t,{st:.4f},{en:.4f})'[vo{j}]")
         cur_v = f"vo{j}"
+    behind = [t for t in edl["texts"] if t.get("behind_subject")]
+    edl["texts"] = [t for t in edl["texts"] if not t.get("behind_subject")]
+    if behind:
+        # Text behind the subject: render the picture without texts/overlays once, find the subject
+        # in the text windows, then stack: picture -> behind-texts -> subject cut out -> other texts.
+        from . import subject
+        base_edl = json.loads(json.dumps({**edl, "texts": [], "overlays": [], "sfx": [],
+                                          "audio": {"normalize": False}}, default=str))
+        base_edl["output"] = dict(out, path=str(work / "subject_base.mp4"), max_mb=None)
+        base = render(base_edl, work, preview=preview)["output"]
+        mask = subject.mask_video(base, str(work / ("subject_mask_preview.mkv" if preview else "subject_mask.mkv")),
+                                  W, H, out["fps"], [(float(t["start"]), float(t["end"])) for t in behind],
+                                  edl.get("subject_model", "u2net"))
+        args += ["-i", mask]
+        mi = _input_count(args) - 1
+        bass = text.write_ass(behind, W, H, work / ("behind_preview.ass" if preview else "behind.ass"))
+        graph.append(f"[{cur_v}]split[sba][sbb]")
+        graph.append(f"[sba]ass=filename='{_fesc(bass)}':fontsdir='{_fesc(text.FONTS_DIR)}':shaping=complex[sbt]")
+        graph.append(f"[{mi}:v]format=gray,setpts=PTS-STARTPTS[sbm]")
+        graph.append("[sbb]format=rgba[sbr];[sbr][sbm]alphamerge[sbf]")
+        graph.append("[sbt][sbf]overlay=format=auto[sbo]")
+        cur_v = "sbo"
     if edl["texts"]:
         ass = text.write_ass(edl["texts"], W, H, work / ("preview.ass" if preview else "final.ass"))
         vpost.append(f"ass=filename='{_fesc(ass)}':fontsdir='{_fesc(text.FONTS_DIR)}':shaping=complex")

@@ -60,6 +60,9 @@ you need (`edit_playbook(section)`), not all of them.
 - Time on screen: about 0.3 s per word + 0.5 s, minimum 1 s.
 - Animate in on a beat (pop, word_by_word), out on a beat; keep one text style per edit plus one
   accent colour for key words.
+- Text behind the subject (`behind_subject: true`) is a strong hook/title look: one or two big
+  bold words, wider than the subject, placed where the subject overlaps them (head/body over
+  the middle of the word); hold it 1.5-3 s on a calm shot.
 - Persian/Arabic: Blade shapes and orders RTL text; keep sentences short and check with
   `view_frames`.
 

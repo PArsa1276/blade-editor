@@ -56,6 +56,7 @@ Complete beginners: follow [INSTALL.md](INSTALL.md) (English) or [INSTALL_FA.md]
 | `auto_edit` | Beat-synced edit in one call, in a preset style (`hype`, `phonk`, `cinematic`, `smooth`, `glitch`) or in the style of a reference video |
 | `render_edl` | Full control with a JSON edit list; preview at half size first; unchanged clips are cached, so changes render fast |
 | `speech_segments` | Finds the parts with speech for jump cuts (pause removal) |
+| `subject_cutout` + `texts[].behind_subject` | **Subject separation** with a local AI model (U²-Net): **text behind the person/object** (the trendy title look), or cut the subject out - transparent, blurred background, new colour or a new background image/video |
 | `edit_playbook` | **Taste guide**: the rules that make edits feel professional (hook, energy curve, rhythm, motion continuity, speed ramps, transitions, text safe zones, colour, sound design, endings, platform specs, common mistakes, final checklist), each mapped to Blade's tools |
 | `edl_versions`, `restore_version` | Every render is a numbered version with a note: compare them or go back ("the earlier one was better") - re-rendered fast from cache |
 | `edit_ideas`, `learn_edit` | **Ideas library**: 12 proven edit formats (beat-sync flash, velocity, aura, cinematic travel, glitch, UGC hook, before/after, 3D spin, kinetic type, POV, smooth, sport) with structure, rhythm, camera, effects and one "wow" trick each; `learn_edit` turns any edit you like (e.g. a CapCut template preview or a TikTok Creative Center ad) into your own reusable recipe |

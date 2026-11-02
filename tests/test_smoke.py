@@ -318,3 +318,27 @@ def test_slowmo_modes():
     assert render._slow(0.5, "auto", 30, 540, 960, False) == ["framerate=fps=30"]  # preview
     assert render._slow(0.9, "auto", 30, 1080, 1920, True) == ["framerate=fps=30"]
     assert render._slow(0.5, "none", 30, 1080, 1920, True) == []
+
+
+def test_text_behind_subject(tmp_path):
+    """Needs onnxruntime and the u2net model already downloaded (skipped otherwise: 176 MB)."""
+    import numpy as np
+    import pytest
+    from PIL import Image, ImageDraw
+    from blade_editor import render, subject
+    if not subject.available() or not (subject.MODEL_DIR / "u2net.onnx").exists():
+        pytest.skip("onnxruntime or the u2net model is not here")
+    im = Image.new("RGB", (540, 960), (40, 60, 90))
+    ImageDraw.Draw(im).ellipse([170, 300, 370, 660], fill=(230, 60, 40))
+    im.save(tmp_path / "s.png")
+    edl = {"output": {"path": str(tmp_path / "o.mp4"), "width": 540, "height": 960, "fps": 10},
+           "clips": [{"src": str(tmp_path / "s.png"), "duration": 1}],
+           "texts": [{"text": "BLADE", "start": 0, "end": 1, "style": "yellow", "size": 520,
+                      "pos": [0.5, 0.5], "anim": "none", "behind_subject": True}]}
+    out = render.render(edl, tmp_path / "w")["output"]
+    f = tmp_path / "f.png"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "0.5", "-i", out, "-frames:v", "1", str(f)], check=True)
+    a = np.asarray(Image.open(f).convert("RGB")).astype(int)
+    centre, side = a[480, 270], a[480, 60]
+    assert centre[0] > 180 and centre[1] < 120  # subject (red) stays in front of the text
+    assert side[0] > 180 and side[1] > 180       # the yellow text shows beside the subject

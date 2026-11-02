@@ -27,6 +27,7 @@ Never deliver half versions. Before any render:
 | A camera move in a reference shot (sway left-right and back, whip, pan, rotation, zoom) | `reference_breakdown` gives `camera_keys` per shot -> clip effect `{"type":"camera","keys":...}`; for one shot `extract_motion` |
 | A move you design (360 spin with stops, sway, whip, zoom pulse, tilt swing) | `camera_preset` -> `camera` effect |
 | A FAST SPIN noted by the breakdown | `camera_preset spin360_holds` / `tilt_swing` with the angles you see (measured angles are too low) |
+| Text behind the person/object, cutout, background blur/replace | `texts[].behind_subject: true` (big bold title wider than the subject); `subject_cutout` |
 | 3D turn, card flip, orbit, perspective, designed titles, shapes, Lottie, kinetic text | `motion_graphic` (Kinetograph; templates in `examples/`) |
 | Impact on a beat | effects `zoom_punch` + `flash` + sfx `hit` on downbeats |
 | Hand-held jitter | effect `shake` (to add) / clip `stabilize: true` (to remove) |
