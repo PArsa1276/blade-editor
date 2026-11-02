@@ -24,7 +24,7 @@ echo "OK: ffmpeg found"
 say "Installing Blade Editor into its own folder (~/.blade-editor/venv)"
 "$PY" -m venv "$HOME/.blade-editor/venv"
 "$HOME/.blade-editor/venv/bin/python" -m pip install -q --upgrade pip
-"$HOME/.blade-editor/venv/bin/python" -m pip install -q ".[captions]"
+"$HOME/.blade-editor/venv/bin/python" -m pip install -q ".[captions,subject]"
 SPY="$HOME/.blade-editor/venv/bin/python"
 "$SPY" -c "import blade_editor.server" && echo "OK: Blade Editor installed"
 

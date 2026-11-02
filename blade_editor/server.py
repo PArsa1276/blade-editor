@@ -15,7 +15,7 @@ from typing import Any
 from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, prompts, qa, recipes, render, sfx, text
+from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, prompts, qa, recipes, render, sfx, shorts, text
 
 HOME = Path(os.environ.get("BLADE_HOME", Path.home() / "blade_projects")).expanduser()
 
@@ -29,12 +29,15 @@ IDEAS: for a creative edit, call `edit_ideas` with the user's request first and 
 recipe (structure, rhythm, the "wow" trick) - adapted to the footage and the user's words. Read
 the 1-3 `edit_playbook` sections the job needs, and its checklist before the final render.
 Every render is a version: "go back" -> edl_versions + restore_version.
+LONG VIDEO -> SHORTS: transcript first, then find_highlights; pick by meaning (complete idea,
+hook in 3 s, payoff), then make_shorts.
 `learn_edit` saves a reference the user likes as a new recipe.
 
 DECIDE BEFORE THE FIRST RENDER: run `reference_breakdown` (when there is a reference) and
 `view_frames` on the reference and sources. Map each part to a tool: camera moves -> `camera`
 effect with the breakdown's keys (or `camera_preset`); 3D turns, designed titles/graphics ->
-`motion_graphic` (Kinetograph); missing shots -> Google Flow (write the prompt with `video_prompt`, second by second; ask before
+`motion_graphic` (Kinetograph); missing shots -> Google Flow: keyframe images first (`flow_generate_image`, same references for every
+shot), then video from them (`first_frame`/`last_frame`, prompt with `video_prompt`); ask before
 spending credits);
 beats -> clip in/out on beats or `auto_edit`. Tell the user briefly what will match exactly,
 approximately, or not at all - then make ONE complete, standard edit (no half versions).
@@ -171,7 +174,11 @@ def capabilities() -> dict:
                        "transition: 'cut' | 'flash' | 'zoom' | 'glitch' | 'whip' | any ffmpeg xfade name, "
                        "or {type, dur}}",
             "texts[]": "{text (emoji become colour stickers above the text), start, end, style, pos ('top','upper','center','lower','bottom','top_left',...) "
-                       "or [x,y] fractions, anim, size, color '#RRGGBB', outline_color, font, rotate}",
+                       "or [x,y] fractions, anim, size, color '#RRGGBB', outline_color, font, rotate, "
+                       "behind_subject=false (true: the text goes BEHIND the person/object in the shot - big "
+                       "bold titles wider than the subject look best; the subject is found by a local AI "
+                       "model, about 0.1-0.3 s per frame inside the text's time)}. Top-level "
+                       "subject_model: u2net (any subject, default) | u2net_human_seg (people) | silueta (fast)",
             "global_effects[]": "same effect objects, times in output seconds",
             "overlays[]": "{src (png/jpg/video or 'emoji:🔥'), start, end, x, y (0..1 centre), width (fraction of frame), opacity}",
             "audio": "{music, music_start, volume, fade_in, fade_out, keep_clip_audio, clip_audio_volume, duck, normalize=true (-14 LUFS)}",
@@ -491,6 +498,59 @@ render_edl = mcp.tool()(render_edl)
 
 
 @mcp.tool()
+def find_highlights(path: str, count: int = 5, min_seconds: float = 20, max_seconds: float = 60,
+                    transcript_path: str | None = None, project: str | None = None) -> dict:
+    """Long video -> shorts, step 1: score the whole video (loudness, movement and - with a
+    transcript - dense speech, strong opening lines, complete sentences) and return the best
+    non-overlapping moments with their text (about count x 2, best first). For talking videos run
+    transcribe (+ fix_transcript) first and pass transcript_path: the moments then start and end on
+    sentences and you can read what is said. YOU choose the final `count` by meaning (a complete
+    idea, a strong hook in the first 3 s, a payoff), adjust start/end, write a short title for each,
+    then call make_shorts."""
+    tr = json.loads(Path(_abs(transcript_path)).read_text(encoding="utf-8")) if transcript_path else None
+    r = shorts.find(_abs(path), tr, count, min_seconds, max_seconds)
+    r["saved_json"] = _save(_project(project), f"highlights_{Path(path).stem}", r)
+    return r
+
+
+@mcp.tool()
+def make_shorts(path: str, shorts_list: list[dict], output_dir: str, transcript_path: str | None = None,
+                jump_cut: bool = True, captions: bool = True, width: int = 1080, height: int = 1920,
+                fps: int = 30, preview: bool = False, project: str | None = None) -> dict:
+    """Long video -> shorts, step 2: render each chosen moment as a finished vertical short.
+    shorts_list: [{start, end, title?}] in source seconds (from find_highlights, adjusted by you).
+    Each short gets: pauses removed (jump_cut), a crop that follows the action, a hook title for
+    3 s, karaoke captions from the transcript (moved onto the cut timeline), -14 LUFS. Files are
+    <output_dir>/short_01.mp4 ...; each EDL is saved, so one short can be changed with render_edl."""
+    tr = json.loads(Path(_abs(transcript_path)).read_text(encoding="utf-8")) if transcript_path else None
+    src, outd = _abs(path), Path(output_dir).expanduser().resolve()
+    outd.mkdir(parents=True, exist_ok=True)
+    done = []
+    for k, s in enumerate(shorts_list, 1):
+        edl = shorts.build_edl(src, float(s["start"]), float(s["end"]), str(outd / f"short_{k:02d}.mp4"),
+                               s.get("title"), tr, jump_cut, captions, width, height, fps)
+        edl_path = _save(_project(project), f"edl_short_{k:02d}", edl)
+        r = _render_edl(edl=edl, preview=preview, note=f"short {k}: {s.get('title') or ''}", project=project)
+        done.append({"short": k, "output": r["output"], "duration": r["duration"], "edl_path": edl_path,
+                     "pieces": len(edl["clips"]), "captions": sum(1 for t in edl["texts"] if "_raw" in t)})
+    return {"shorts": done, "next": "Check each with view_frames / quality_check."}
+
+
+@mcp.tool()
+def subject_cutout(path: str, output_path: str, background: str = "transparent", model: str = "u2net",
+                   start: float = 0.0, duration: float | None = None) -> dict:
+    """Cut the main subject (person, animal, car, product) out of a clip with a local AI model.
+    background: "transparent" (ProRes 4444 .mov with alpha - put it in `overlays`, e.g. over
+    another clip), "blur", a colour ("#101010", "white") or an image/video file (new background).
+    model: u2net (any subject), u2net_human_seg (people), silueta (faster). The model is
+    downloaded once (43-176 MB). For text behind the subject use texts[].behind_subject instead."""
+    from . import subject
+    bg = background if background in ("transparent", "blur") or not Path(background).expanduser().exists() \
+        else _abs(background)
+    return subject.cutout(_abs(path), str(Path(output_path).expanduser().resolve()), bg, model, start, duration)
+
+
+@mcp.tool()
 def quality_check(path: str) -> dict:
     """Check a finished video for black frames, frozen picture, silence, loudness (LUFS) and peak."""
     return qa.check(_abs(path))
@@ -671,7 +731,8 @@ def video_prompt(beats: list[dict], style: str, duration: float = 8.0, aspect: s
 
 @mcp.tool()
 async def flow_generate_video(prompt: str, confirm: bool = False, port: int = 0, direct: bool = True,
-                              timeout: float = 90, force_new: bool = False, project: str | None = None) -> list:
+                              timeout: float = 90, force_new: bool = False, first_frame: str | None = None,
+                              last_frame: str | None = None, project: str | None = None) -> list:
     """Generate a video clip with Google Flow (Veo) in your logged-in Chrome.
     confirm=false (default) only types the prompt and returns a screenshot; no credits are spent.
     Ask the user, then call with confirm=true to submit; the new video is downloaded to the
@@ -679,10 +740,31 @@ async def flow_generate_video(prompt: str, confirm: bool = False, port: int = 0,
     dialogs; if Flow shows one, the user approves it in the browser. It waits at most `timeout`
     seconds; status "generating" means: call flow_collect (never generate again - the sent clip
     is remembered even if Blade restarts, and a second confirm is refused unless force_new=true
-    after the user asks for a new clip)."""
+    after the user asks for a new clip).
+    first_frame / last_frame: start and/or end the clip on an exact picture, so it joins the
+    user's footage: an image path, or "video.mp4@12.5" (the frame at 12.5 s of a video - e.g. the
+    last frame of the shot before, or the first frame of the shot after). The images are attached
+    in Flow and the prompt says which is first/last; check `frames_visible` and the screenshot in
+    the dry run. Write the prompt about the MOTION between the frames."""
     out = _project(project) / "flow"
     return _with_shot(await flow.generate_video(prompt, out, confirm, port, direct, timeout,
-                                                force_new=force_new))
+                                                force_new=force_new, first_frame=first_frame,
+                                                last_frame=last_frame))
+
+
+@mcp.tool()
+async def flow_generate_image(prompt: str, confirm: bool = False, references: list[str] | None = None,
+                              port: int = 0, timeout: float = 120, project: str | None = None) -> list:
+    """Make still images with Flow's image model (the project's 'Image generation default', e.g.
+    Nano Banana 2.1) in the user's Chrome. Use it for KEYFRAMES: make the first and last frame of a
+    shot as images, check them, then pass them to flow_generate_video(first_frame=..., last_frame=...)
+    - video from keyframes is sharper and keeps the same character/place across shots.
+    references: images or "video.mp4@t" frames to keep the same person, product, place or style
+    (e.g. a character sheet made first, or the user's own footage). Write the prompt in English:
+    subject, pose/action, framing and lens, setting, light, style, aspect (match the video: 9:16
+    or 16:9). confirm=false types it only; confirm=true makes and downloads the image(s)."""
+    out = _project(project) / "flow" / "images"
+    return _with_shot(await flow.generate_image(prompt, out, confirm, port, references, timeout))
 
 
 @mcp.tool()
