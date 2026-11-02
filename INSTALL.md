@@ -1,5 +1,11 @@
 # Blade Editor: installation (step by step)
 
+> **Beta:** Blade Editor may still have bugs. If something goes wrong, please report it in
+> [Issues](https://github.com/PArsa1276/blade-editor/issues/new/choose) with the exact error text.
+>
+> **Short way (needs Node.js):** quit the Claude app and run `npx github:PArsa1276/blade-editor`
+> in a terminal. It does all the steps below. Use this guide if you want to go step by step.
+
 ## What you need
 
 - A computer with Windows 10/11 or macOS (Linux also works).

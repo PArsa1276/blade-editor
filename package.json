@@ -1,6 +1,6 @@
 {
   "name": "blade-editor",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "description": "Free local video editor for AI agents (MCP server + skills for Claude). Run: npx blade-editor",
   "bin": { "blade-editor": "bin/blade-editor.js" },
   "files": ["bin/", "blade_editor/", "skill/", "extension/", "examples/", "licenses/",

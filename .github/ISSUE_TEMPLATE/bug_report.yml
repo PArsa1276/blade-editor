@@ -1,0 +1,49 @@
+name: Bug report / گزارش مشکل
+description: Something does not work as it should. / چیزی درست کار نمی‌کند.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you! Blade Editor is in beta - your report helps. Persian or English is fine.
+        ممنون! بلید ادیتور نسخهٔ بتا است و گزارش شما کمک می‌کند. فارسی یا انگلیسی بنویسید.
+  - type: textarea
+    id: what
+    attributes:
+      label: What did you ask for, and what happened? / چه خواستید و چه شد؟
+      placeholder: "I asked: make a 15 s edit with song.mp3 ... The result: ..."
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Exact error text / متن دقیق خطا
+      description: Copy the whole error, or add a screenshot. / کل متن خطا را کپی کنید یا اسکرین‌شات بگذارید.
+      render: text
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part? / کدام بخش؟
+      options:
+        - Install / نصب
+        - Edit and render / ادیت و رندر
+        - Captions / زیرنویس
+        - Subject cutout, text behind subject / جدا کردن سوژه
+        - Long video to shorts / شورت‌ساز
+        - Google Flow and the Chrome extension / گوگل فلو و افزونه
+        - Kinetograph
+        - Other / سایر
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System / سیستم
+      placeholder: "Windows 11, Claude app (Code tab), Blade 0.1.0b1"
+    validations:
+      required: true
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else (test file, screenshot) / توضیح بیشتر
+      description: Do not upload private videos. / ویدیوی خصوصی آپلود نکنید.

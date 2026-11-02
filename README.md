@@ -5,6 +5,17 @@ normal words. Blade Editor lets the agent *see* your footage, measure the music 
 of a reference video, cut on the beat, add effects, text and captions, and check the result -
 all on your own computer, with ffmpeg. No cloud, no credits, no watermark.
 
+> [!WARNING]
+> **Beta (0.1.0-beta.1).** Blade Editor is new and still has bugs and rough edges, mainly in the
+> Google Flow part (Google changes its site often), in the installers on macOS, and on footage we
+> have not tested yet. If something does not work, please
+> **[open an issue](https://github.com/PArsa1276/blade-editor/issues/new/choose)** - every report
+> is read and checked, and fixed when it can be.
+>
+> 🇮🇷 **نسخهٔ بتا:** بلید ادیتور تازه است و ممکن است هنوز باگ و ایراد داشته باشد. اگر مشکلی دیدید،
+> لطفاً در بخش **[Issues](https://github.com/PArsa1276/blade-editor/issues/new/choose)** گزارش بدهید
+> (فارسی یا انگلیسی). هر گزارش بررسی می‌شود و اگر قابل رفع باشد، درست می‌شود.
+
 > Install: 🇬🇧 [INSTALL.md](INSTALL.md) · 🇮🇷 [INSTALL_FA.md](INSTALL_FA.md) — Use: 🇬🇧 [short guide](blade_editor/GUIDE.md) · 🇮🇷 [راهنمای کوتاه](GUIDE_FA.md)
 
 ```text
@@ -25,15 +36,16 @@ you only say what you want, in any language.
 **One command** (needs [Node.js](https://nodejs.org)): quit the Claude app, then run
 
 ```bash
-npx blade-editor
+npx github:PArsa1276/blade-editor
 ```
 
-(Before the npm package is published, use `npx github:PArsa1276/blade-editor`.) It does all
+(When the npm package is published, `npx blade-editor` also works.) It does all
 the steps below by itself: Python and ffmpeg checks, Blade Editor, the Claude settings, the
 skills, the Chrome extension and Kinetograph. Open the Claude app again when it says ready.
 
-**From your phone:** open this repository in [Claude Code on the web](https://claude.ai/code)
-(the Claude app, Code tab) and start a session. The repository's `.mcp.json` and setup hook load
+**From your phone:** [fork this repository](https://github.com/PArsa1276/blade-editor/fork),
+then open your fork in [Claude Code on the web](https://claude.ai/code) (the Claude app, Code
+tab) and start a session. The repository's `.mcp.json` and setup hook load
 Blade Editor in the cloud session; send your clips as attachments. (Google Flow needs your own
 Chrome, so it does not work there.)
 
@@ -154,6 +166,19 @@ Claude Desktop (`claude_desktop_config.json`): `{ "mcpServers": { "blade-editor"
 - Complex After Effects work (masks, tracked 3D text, particles) is not copied exactly; the edit
   gets close with rhythm, flashes, shake, zooms, colour, speed and text, plus Kinetograph graphics.
 - Automating the Google Flow website may be against Google's terms; use that part at your own risk.
+
+## Report a problem (beta)
+
+Blade Editor is in **beta**. Your reports make it better:
+
+1. Open **[Issues → New issue](https://github.com/PArsa1276/blade-editor/issues/new/choose)** and
+   choose **Bug report** (or **Feature request** for an idea). Persian or English is fine.
+2. Give: what you asked, what happened, the **exact error text** (copy it), your system
+   (Windows/macOS/Linux, Claude app or Claude Code), and the version from `start_here`.
+3. If you can, add a small test file or a screenshot. Do not upload private videos.
+
+Each report is checked: if the problem can be reproduced and fixed, the fix comes in a new
+version, and the issue says when.
 
 ## Tests
 

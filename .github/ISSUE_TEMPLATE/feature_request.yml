@@ -1,0 +1,15 @@
+name: Feature request / پیشنهاد قابلیت
+description: An idea that would make Blade Editor better. / ایده‌ای برای بهتر شدن بلید.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What should Blade Editor do? / بلید چه کاری انجام دهد؟
+      placeholder: "An effect like in this video: ..."
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example (link, reference video, screenshot) / نمونه
