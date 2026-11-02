@@ -2,6 +2,10 @@ import http.server, sys, pathlib
 D = pathlib.Path(sys.argv[1])
 PAGE = """<html><body><h3>Mock Flow</h3>
 <video src="/fx/api/trpc/media.getMediaUrlRedirect?name=old111"></video>
+<input type="file" accept="image/*" multiple style="display:none"
+ onchange="for (const f of this.files) { const i = document.createElement('img'); i.src = window.URL.createObjectURL(f);
+ i.width = 40; document.getElementById('thumbs').appendChild(i); }">
+<div id="thumbs"></div>
 <div contenteditable="true" id="p" style="width:400px;height:40px;border:1px solid"></div>
 <button onclick="go()"><span>arrow_forward</span></button>
 <script>

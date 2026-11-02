@@ -27,6 +27,7 @@ def _port():
 def test_flow_downloads_only_the_new_video(tmp_path, monkeypatch):
     """Uses the 'own Chrome' path: Chrome writes DevToolsActivePort; Blade Editor finds it."""
     from blade_editor import flow
+    from blade_editor.bridge import BRIDGE
     monkeypatch.setattr(flow, "PENDING", tmp_path / "pending.json")
 
     for name, pat in (("old.mp4", "testsrc"), ("new.mp4", "smptebars")):
@@ -76,6 +77,7 @@ def test_flow_through_blade_bridge_extension(tmp_path, monkeypatch):
     web = _port()
     monkeypatch.setenv("BLADE_CHROME_DATA", str(tmp_path / "none"))  # no DevTools route
     from blade_editor import flow
+    from blade_editor.bridge import BRIDGE
     monkeypatch.setattr(flow, "PENDING", tmp_path / "pending.json")
     monkeypatch.setattr(flow, "FLOW_URL", f"http://127.0.0.1:{web}/fx/tools/flow/project/x")
     procs = [
@@ -97,10 +99,15 @@ def test_flow_through_blade_bridge_extension(tmp_path, monkeypatch):
             monkeypatch.setattr(flow, "FLOW_MATCH", [project])
             st = await flow.status()
             assert st["project_open"] is True and "message" not in st
-            dry = await flow.generate_video("a cat", tmp_path / "out", confirm=False)
+            frames = {"first_frame": f"{tmp_path / 'old.mp4'}@0.5", "last_frame": f"{tmp_path / 'new.mp4'}@0.5"}
+            dry = await flow.generate_video("a cat", tmp_path / "out", confirm=False, **frames)
             assert dry["via"] == "blade-bridge-extension" and not dry["credits_spent"]
+            assert dry["attached_by"] == "file-input" and dry["frames_visible"] and len(dry["frames"]) == 2
+            assert dry["prompt"].startswith("Generate this video now") and "FIRST FRAME" in dry["prompt"]
             # The mock needs 3 s: a 1 s wait returns "generating" and the clip is remembered.
-            g = await flow.generate_video("a cat", tmp_path / "out", confirm=True, timeout=1, poll=1)
+            g = await flow.generate_video("a cat", tmp_path / "out", confirm=True, timeout=1, poll=1, **frames)
+            imgs = sum(1 for it in (await BRIDGE.call("scan"))["items"] if it["tag"] == "IMG")
+            assert imgs == 2  # the confirm call did not attach the frames a second time
             assert g["status"] == "generating" and (tmp_path / "pending.json").exists()
             with pytest.raises(RuntimeError, match="not collected yet"):  # no second spend
                 await flow.generate_video("a cat", tmp_path / "out", confirm=True)

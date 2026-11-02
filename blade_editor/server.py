@@ -730,7 +730,8 @@ def video_prompt(beats: list[dict], style: str, duration: float = 8.0, aspect: s
 
 @mcp.tool()
 async def flow_generate_video(prompt: str, confirm: bool = False, port: int = 0, direct: bool = True,
-                              timeout: float = 90, force_new: bool = False, project: str | None = None) -> list:
+                              timeout: float = 90, force_new: bool = False, first_frame: str | None = None,
+                              last_frame: str | None = None, project: str | None = None) -> list:
     """Generate a video clip with Google Flow (Veo) in your logged-in Chrome.
     confirm=false (default) only types the prompt and returns a screenshot; no credits are spent.
     Ask the user, then call with confirm=true to submit; the new video is downloaded to the
@@ -738,10 +739,16 @@ async def flow_generate_video(prompt: str, confirm: bool = False, port: int = 0,
     dialogs; if Flow shows one, the user approves it in the browser. It waits at most `timeout`
     seconds; status "generating" means: call flow_collect (never generate again - the sent clip
     is remembered even if Blade restarts, and a second confirm is refused unless force_new=true
-    after the user asks for a new clip)."""
+    after the user asks for a new clip).
+    first_frame / last_frame: start and/or end the clip on an exact picture, so it joins the
+    user's footage: an image path, or "video.mp4@12.5" (the frame at 12.5 s of a video - e.g. the
+    last frame of the shot before, or the first frame of the shot after). The images are attached
+    in Flow and the prompt says which is first/last; check `frames_visible` and the screenshot in
+    the dry run. Write the prompt about the MOTION between the frames."""
     out = _project(project) / "flow"
     return _with_shot(await flow.generate_video(prompt, out, confirm, port, direct, timeout,
-                                                force_new=force_new))
+                                                force_new=force_new, first_frame=first_frame,
+                                                last_frame=last_frame))
 
 
 @mcp.tool()

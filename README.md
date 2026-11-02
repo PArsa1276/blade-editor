@@ -89,7 +89,7 @@ Inside an edit list:
 ### ✨ Optional extras
 | Tool | What it does |
 |---|---|
-| `flow_setup`, `flow_status`, `flow_generate_video`, `flow_collect` | New AI clips with **Google Flow (Veo)** in **your own Chrome**, with your own login and credits, through the bundled **Blade Bridge** extension (load it once; no settings, no prompts; Blade opens the Flow tab itself). Only that extension can connect to Blade (checked by its fixed ID); it can act only on Flow (`flow.google.com`, `labs.google`). Fallback: `chrome://inspect/#remote-debugging`. Dry run first (no credits); never approves credit dialogs; never solves CAPTCHAs |
+| `flow_setup`, `flow_status`, `flow_generate_video`, `flow_collect` | New AI clips with **Google Flow (Veo)** in **your own Chrome**, with your own login and credits, through the bundled **Blade Bridge** extension (load it once; no settings, no prompts; Blade opens the Flow tab itself). Only that extension can connect to Blade (checked by its fixed ID); it can act only on Flow (`flow.google.com`, `labs.google`). Fallback: `chrome://inspect/#remote-debugging`. Dry run first (no credits); never approves credit dialogs; never solves CAPTCHAs. **Start/end frames**: a clip can start and/or end exactly on an image or on a frame of your own video (`clip.mp4@12.5`), so generated shots join your footage |
 | `motion_graphic` | After-Effects-style titles, graphics and **3D turns of your clips** with [Kinetograph](https://github.com/0xS4N4TG/kinetograph), rendered to a **transparent** clip (exact alpha from a black/white double render) and placed on the edit. Templates: `examples/kinetograph-title`, `examples/kinetograph-spin3d` |
 
 ### 🧭 Built for agents

@@ -78,6 +78,18 @@ Example beat: `{"t0": 0, "t1": 2, "camera": "low-angle 24mm, fast dolly in", "ac
 skateboarder pops an ollie, wheels spinning, dust kicking up in slow motion", "lighting":
 "golden hour backlight, warm rim light on the hair"}`
 
+## Start and end frames (clips that join the user's footage)
+
+`flow_generate_video(first_frame=..., last_frame=...)` attaches pictures in Flow and tells the
+model to start/end exactly on them. A frame can be an image or `"clip.mp4@12.5"` (the frame at
+12.5 s). Use it to:
+- continue a shot: first_frame = the LAST frame of the user's shot (`clip.mp4@<its end>`);
+- bridge two shots: first_frame = end of shot A, last_frame = start of shot B (a generated
+  transition that matches both);
+- animate a photo: first_frame = the photo.
+With frames, write the prompt about the MOTION and camera between the frames (they already fix
+the look). In the dry run check `frames_visible` and the screenshot before asking to spend.
+
 ## 3. Show, then spend
 
 Show the user the brief or the Flow prompt (short), then do one dry run of Flow

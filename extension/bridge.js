@@ -65,8 +65,8 @@ async function findFlowTab() {
   return null;
 }
 
-async function inTab(func, args = []) {
-  const res = await chrome.scripting.executeScript({ target: { tabId: flowTab, allFrames: true }, func, args });
+async function inTab(func, args = [], world = 'ISOLATED') {
+  const res = await chrome.scripting.executeScript({ target: { tabId: flowTab, allFrames: true }, func, args, world });
   return res.map(r => r.result);
 }
 
@@ -113,6 +113,47 @@ async function run(cmd, a) {
       return true;
     }, [a.text]);
     return { typed: r.some(Boolean) };
+  }
+
+  if (cmd === 'attach_images') {
+    // Start/end frames: Flow's upload control is not documented, so try the usual ways in order:
+    // a file <input>, a paste into the prompt box, a drop onto it. Credits are never involved.
+    const r = await inTab(async (files) => {
+      const list = files.map(f => {
+        const bin = atob(f.b64), u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        return new File([u8], f.name, { type: f.type });
+      });
+      const dt = () => { const d = new DataTransfer(); list.forEach(f => d.items.add(f)); return d; };
+      const inputs = [...document.querySelectorAll('input[type="file"]')];
+      const input = inputs.find(i => /image/.test(i.accept || '')) || inputs[0];
+      if (input) {
+        if (!input.multiple && list.length > 1) {
+          for (const f of list) {  // one file per change event
+            const d = new DataTransfer(); d.items.add(f); input.files = d.files;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            await new Promise(ok => setTimeout(ok, 800));
+          }
+        } else {
+          input.files = dt().files;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return 'file-input';
+      }
+      const vis = (el) => el && el.offsetParent !== null;
+      const box = [...document.querySelectorAll('[contenteditable="true"], textarea')].find(vis);
+      if (!box) return null;
+      box.focus();
+      const pasted = !box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt(), bubbles: true, cancelable: true }));
+      if (pasted) return 'paste';
+      for (const type of ['dragenter', 'dragover', 'drop']) {
+        box.dispatchEvent(new DragEvent(type, { dataTransfer: dt(), bubbles: true, cancelable: true }));
+      }
+      return 'drop';
+    }, [a.files], 'MAIN');  // the page's own world: its upload handlers see the files and events
+    return { method: r.find(Boolean) || null };
   }
 
   if (cmd === 'submit') {

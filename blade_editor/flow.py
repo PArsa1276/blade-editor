@@ -193,6 +193,22 @@ class _CDP:
     async def download(self, key: str, info: dict, out: Path) -> bool:
         return await _download(self.page, key, info, out)
 
+    async def images(self) -> int:
+        return await self.page.evaluate("() => document.querySelectorAll('img').length")
+
+    async def attach(self, files: list[Path]) -> str | None:
+        inp = self.page.locator('input[type="file"]')
+        if not await inp.count():
+            return None
+        el = inp.first
+        if len(files) > 1 and not await el.evaluate("e => e.multiple"):
+            for f in files:
+                await el.set_input_files(str(f))
+                await self.page.wait_for_timeout(800)
+        else:
+            await el.set_input_files([str(f) for f in files])
+        return "file-input"
+
     async def probe(self) -> dict:
         return await self.page.evaluate("""() => {
           const vis = (el) => el && el.offsetParent !== null;
@@ -244,6 +260,14 @@ class _Ext:
             return False
         out.write_bytes(base64.b64decode(r["b64"]))
         return True
+
+    async def images(self) -> int:
+        return sum(1 for it in (await self.b.call("scan"))["items"] if it["tag"] == "IMG")
+
+    async def attach(self, files: list[Path]) -> str | None:
+        payload = [{"name": f.name, "type": "image/jpeg", "b64": base64.b64encode(f.read_bytes()).decode()}
+                   for f in files]
+        return (await self.b.call("attach_images", timeout=60, files=payload))["method"]
 
     async def probe(self) -> dict:
         return await self.b.call("probe")
@@ -348,9 +372,40 @@ async def _wait_new(d, job: dict, wait: float, poll: float) -> dict:
             "_screenshot": await d.shot()}
 
 
+def frame_file(spec: str, out_dir: Path, name: str) -> Path:
+    """An image path, or "video.mp4@12.5" for the frame at 12.5 s of a video -> a JPEG (max 1920 px)."""
+    import subprocess
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"{name}.jpg"
+    src, _, at = spec.rpartition("@") if "@" in spec else (spec, "", "")
+    src = str(Path(src).expanduser())
+    if not Path(src).exists():
+        raise ValueError(f"Frame source not found: {src}")
+    seek = ["-ss", f"{float(at):.3f}"] if at else []
+    subprocess.run(["ffmpeg", "-v", "error", "-y", *seek, "-i", src, "-frames:v", "1", "-vf",
+                    "scale='min(1920,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease",
+                    "-q:v", "2", str(out)], check=True)
+    if not out.exists():
+        raise ValueError(f"Could not read a frame from {spec} (is the time inside the video?).")
+    return out
+
+
+def frames_instruction(first: bool, last: bool) -> str:
+    if first and last:
+        return ("Use the attached images as keyframes: image 1 is the FIRST FRAME and image 2 is the LAST "
+                "FRAME. Start exactly on image 1 and end exactly on image 2, with one continuous, natural "
+                "motion between them. Keep the people, objects, colours and light of the images. ")
+    if first:
+        return ("Use the attached image as the FIRST FRAME: the video starts exactly on this image and "
+                "continues from it. Keep its people, objects, colours and light. ")
+    return ("Use the attached image as the LAST FRAME: the video ends exactly on this image. Keep its "
+            "people, objects, colours and light. ")
+
+
 async def generate_video(prompt: str, out_dir: str | Path, confirm: bool = False, port: int = 0,
                          direct: bool = True, timeout: float = 90, poll: float = 5,
-                         force_new: bool = False) -> dict:
+                         force_new: bool = False, first_frame: str | None = None,
+                         last_frame: str | None = None) -> dict:
     """Type the prompt in Flow. With confirm=True also submit; wait up to `timeout` s (short, so the
     MCP call does not break), then hand over to collect()."""
     job = _pending()
@@ -359,14 +414,46 @@ async def generate_video(prompt: str, out_dir: str | Path, confirm: bool = False
             f"A Flow clip sent {round((time.time() - job['started']) / 60, 1)} min ago is not collected yet "
             f"(prompt: {job['prompt'][:80]!r}). Call flow_collect first, or look in Flow. Use force_new=true "
             "only if the user confirms a NEW clip (it spends credits).")
+    frames = []
+    if first_frame:
+        frames.append(frame_file(first_frame, Path(out_dir) / "frames", f"first_{int(time.time())}"))
+    if last_frame:
+        frames.append(frame_file(last_frame, Path(out_dir) / "frames", f"last_{int(time.time())}"))
     d = await _driver(port)
     try:
+        attached, seen = None, None
+        draft = PENDING.with_name("flow_draft.json")
+        specs = [first_frame, last_frame]
+        try:
+            old = json.loads(draft.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            old = {}
+        if frames and confirm and old.get("specs") == specs and time.time() - old.get("time", 0) < 900:
+            # The dry run attached these frames already: attaching again would add them twice.
+            prompt = frames_instruction(bool(first_frame), bool(last_frame)) + prompt
+            attached, frames = "dry-run", []
+        if frames:
+            before_imgs = await d.images()
+            attached = await d.attach(frames)
+            if not attached:
+                raise RuntimeError("Could not find where to add images on the Flow page (no upload control). "
+                                   "Add the frame image(s) by hand in Flow, then call again without frames.")
+            await d.wait(2)
+            seen = await d.images() > before_imgs
+            prompt = frames_instruction(bool(first_frame), bool(last_frame)) + prompt
+            draft.parent.mkdir(parents=True, exist_ok=True)
+            draft.write_text(json.dumps({"specs": specs, "time": time.time()}), encoding="utf-8")
         text = ("Generate this video now, with no questions, exactly as described: " + prompt) if direct else prompt
         if not await d.type(text):
             raise RuntimeError("No prompt box found on the Flow page. Open or create a Flow project "
                                "in the Flow tab.")
         if not confirm:
-            return {"status": "ready_for_confirmation", "credits_spent": False, "prompt": text, "via": d.name,
+            extra = {}
+            if frames:
+                extra = {"frames": [str(f) for f in frames], "attached_by": attached, "frames_visible": seen,
+                         "frames_note": "Check the screenshot: the frame image(s) must show in Flow's prompt area "
+                                        "before confirming." if not seen else "The page shows the new image(s)."}
+            return {**extra, "status": "ready_for_confirmation", "credits_spent": False, "prompt": text, "via": d.name,
                     "message": "The prompt is typed in Flow. Call again with confirm=true to generate "
                                "(this spends your Flow credits).", "_screenshot": await d.shot()}
         before = list(await d.media())
