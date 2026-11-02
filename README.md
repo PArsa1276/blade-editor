@@ -22,6 +22,23 @@ you only say what you want, in any language.
 
 ## Quick start
 
+**One command** (needs [Node.js](https://nodejs.org)): quit the Claude app, then run
+
+```bash
+npx blade-editor
+```
+
+(Before the npm package is published, use `npx github:PArsa1276/blade-editor`.) It does all
+the steps below by itself: Python and ffmpeg checks, Blade Editor, the Claude settings, the
+skills, the Chrome extension and Kinetograph. Open the Claude app again when it says ready.
+
+**From your phone:** open this repository in [Claude Code on the web](https://claude.ai/code)
+(the Claude app, Code tab) and start a session. The repository's `.mcp.json` and setup hook load
+Blade Editor in the cloud session; send your clips as attachments. (Google Flow needs your own
+Chrome, so it does not work there.)
+
+**By hand:**
+
 1. Install the [Claude app](https://claude.ai/download) or [Claude Code](https://claude.com/claude-code).
 2. Download this repository ([ZIP](https://github.com/PArsa1276/blade-editor/archive/refs/heads/main.zip)) and run the installer in its folder:
    - Windows: `powershell -ExecutionPolicy Bypass -File install.ps1`
