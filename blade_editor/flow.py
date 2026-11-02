@@ -196,6 +196,18 @@ class _CDP:
     async def images(self) -> int:
         return await self.page.evaluate("() => document.querySelectorAll('img').length")
 
+    async def img_srcs(self) -> list[str]:
+        return [i["src"] for i in await self.page.evaluate(SCAN_JS) if i["tag"] == "IMG" and i["w"] >= 128 and i["src"]]
+
+    async def fetch(self, url: str) -> tuple[str, bytes]:
+        if url.startswith("blob:") or url.startswith("data:"):
+            d = await self.page.evaluate("""async (u) => { const b = await (await fetch(u)).blob();
+              return await new Promise(ok => { const r = new FileReader(); r.onload = () => ok(r.result);
+              r.readAsDataURL(b); }); }""", url)
+            return d[5:d.index(";")], base64.b64decode(d.split(",", 1)[1])
+        r = await self.page.request.get(url, timeout=120000)
+        return r.headers.get("content-type", ""), await r.body()
+
     async def attach(self, files: list[Path]) -> str | None:
         inp = self.page.locator('input[type="file"]')
         if not await inp.count():
@@ -263,6 +275,14 @@ class _Ext:
 
     async def images(self) -> int:
         return sum(1 for it in (await self.b.call("scan"))["items"] if it["tag"] == "IMG")
+
+    async def img_srcs(self) -> list[str]:
+        return [i["src"] for i in (await self.b.call("scan"))["items"]
+                if i["tag"] == "IMG" and i["w"] >= 128 and i["src"]]
+
+    async def fetch(self, url: str) -> tuple[str, bytes]:
+        r = await self.b.call("fetch_media", timeout=300, url=url)
+        return r.get("type", ""), base64.b64decode(r["b64"])
 
     async def attach(self, files: list[Path]) -> str | None:
         payload = [{"name": f.name, "type": "image/jpeg", "b64": base64.b64encode(f.read_bytes()).decode()}
@@ -462,6 +482,69 @@ async def generate_video(prompt: str, out_dir: str | Path, confirm: bool = False
         job = {"started": time.time(), "prompt": prompt, "before": before, "out_dir": str(Path(out_dir))}
         _set_pending(job)  # saved at once: if Blade restarts now, flow_collect still finds the clip
         return await _wait_new(d, job, timeout, poll)
+    finally:
+        await d.close()
+
+
+async def generate_image(prompt: str, out_dir: str | Path, confirm: bool = False, port: int = 0,
+                         references: list[str] | None = None, timeout: float = 120, poll: float = 3) -> dict:
+    """Make still images in Flow with its image model (the project's 'Image generation default',
+    e.g. Nano Banana 2.1). references: images or 'video.mp4@t' frames that keep the same
+    character, product, place or style. With confirm=True: submit, wait, download the new images."""
+    out_dir = Path(out_dir)
+    refs = [frame_file(r, out_dir / "frames", f"ref{k}_{int(time.time())}") for k, r in enumerate(references or [])]
+    d = await _driver(port)
+    try:
+        attached = None
+        if refs:
+            attached = await d.attach(refs)
+            if not attached:
+                raise RuntimeError("Could not find where to add images on the Flow page. Add the reference "
+                                   "image(s) by hand in Flow, then call again without references.")
+            await d.wait(2)
+            prompt = ("Use the attached image(s) as reference: keep the same people, faces, clothes, objects, "
+                      "place and style. ") + prompt
+        text = "Generate an IMAGE now (a still picture, not a video), exactly as described: " + prompt
+        if not await d.type(text):
+            raise RuntimeError("No prompt box found on the Flow page. Open or create a Flow project in the Flow tab.")
+        if not confirm:
+            return {"status": "ready_for_confirmation", "prompt": text, "via": d.name, "references": [str(r) for r in refs],
+                    "attached_by": attached,
+                    "message": "The prompt is typed in Flow. Call again with confirm=true to make the image(s) "
+                               "with the project's image model (check in Flow whether it costs credits).",
+                    "_screenshot": await d.shot()}
+        before = set(await d.img_srcs())
+        if not await d.submit():
+            raise RuntimeError("No generate button found. The Flow page may have changed.")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        start, files, seen = time.time(), [], set()
+
+        async def grab() -> None:
+            for src in await d.img_srcs():
+                if src in before or src in seen:
+                    continue
+                seen.add(src)
+                try:
+                    ctype, data = await d.fetch(src)
+                except Exception:
+                    continue
+                if ctype.startswith("image/") and len(data) > 1000:
+                    ext = {"image/png": ".png", "image/webp": ".webp"}.get(ctype.split(";")[0], ".jpg")
+                    f = out_dir / f"flow_img_{int(start)}_{len(files) + 1}{ext}"
+                    f.write_bytes(data)
+                    files.append(str(f))
+
+        while time.time() - start < timeout:
+            await d.wait(poll)
+            await grab()
+            if files:
+                await d.wait(poll)  # x2-x4 settings make several images: give the rest a moment
+                await grab()
+                return {"status": "done", "files": files, "via": d.name, "seconds": round(time.time() - start),
+                        "next": "Look at the image(s) (view them), then use one as first_frame/last_frame "
+                                "in flow_generate_video or as a reference for the next image."}
+        return {"status": "timeout", "files": [], "message": "No new image appeared in time. Look in Flow; "
+                "if the agent asked a question, answer it there.", "_screenshot": await d.shot()}
     finally:
         await d.close()
 

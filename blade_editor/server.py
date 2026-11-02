@@ -36,7 +36,8 @@ hook in 3 s, payoff), then make_shorts.
 DECIDE BEFORE THE FIRST RENDER: run `reference_breakdown` (when there is a reference) and
 `view_frames` on the reference and sources. Map each part to a tool: camera moves -> `camera`
 effect with the breakdown's keys (or `camera_preset`); 3D turns, designed titles/graphics ->
-`motion_graphic` (Kinetograph); missing shots -> Google Flow (write the prompt with `video_prompt`, second by second; ask before
+`motion_graphic` (Kinetograph); missing shots -> Google Flow: keyframe images first (`flow_generate_image`, same references for every
+shot), then video from them (`first_frame`/`last_frame`, prompt with `video_prompt`); ask before
 spending credits);
 beats -> clip in/out on beats or `auto_edit`. Tell the user briefly what will match exactly,
 approximately, or not at all - then make ONE complete, standard edit (no half versions).
@@ -749,6 +750,21 @@ async def flow_generate_video(prompt: str, confirm: bool = False, port: int = 0,
     return _with_shot(await flow.generate_video(prompt, out, confirm, port, direct, timeout,
                                                 force_new=force_new, first_frame=first_frame,
                                                 last_frame=last_frame))
+
+
+@mcp.tool()
+async def flow_generate_image(prompt: str, confirm: bool = False, references: list[str] | None = None,
+                              port: int = 0, timeout: float = 120, project: str | None = None) -> list:
+    """Make still images with Flow's image model (the project's 'Image generation default', e.g.
+    Nano Banana 2.1) in the user's Chrome. Use it for KEYFRAMES: make the first and last frame of a
+    shot as images, check them, then pass them to flow_generate_video(first_frame=..., last_frame=...)
+    - video from keyframes is sharper and keeps the same character/place across shots.
+    references: images or "video.mp4@t" frames to keep the same person, product, place or style
+    (e.g. a character sheet made first, or the user's own footage). Write the prompt in English:
+    subject, pose/action, framing and lens, setting, light, style, aspect (match the video: 9:16
+    or 16:9). confirm=false types it only; confirm=true makes and downloads the image(s)."""
+    out = _project(project) / "flow" / "images"
+    return _with_shot(await flow.generate_image(prompt, out, confirm, port, references, timeout))
 
 
 @mcp.tool()
