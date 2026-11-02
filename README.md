@@ -56,6 +56,7 @@ Complete beginners: follow [INSTALL.md](INSTALL.md) (English) or [INSTALL_FA.md]
 | `auto_edit` | Beat-synced edit in one call, in a preset style (`hype`, `phonk`, `cinematic`, `smooth`, `glitch`) or in the style of a reference video |
 | `render_edl` | Full control with a JSON edit list; preview at half size first; unchanged clips are cached, so changes render fast |
 | `speech_segments` | Finds the parts with speech for jump cuts (pause removal) |
+| `find_highlights` -> `make_shorts` | **Long video -> several shorts**: scores the whole video (loudness, movement, dense speech, strong opening lines, full sentences), the AI reads the candidates and picks the best ideas, then each becomes a finished 9:16 short: pauses removed, crop that follows the action, hook title, karaoke captions |
 | `subject_cutout` + `texts[].behind_subject` | **Subject separation** with a local AI model (U²-Net): **text behind the person/object** (the trendy title look), or cut the subject out - transparent, blurred background, new colour or a new background image/video |
 | `edit_playbook` | **Taste guide**: the rules that make edits feel professional (hook, energy curve, rhythm, motion continuity, speed ramps, transitions, text safe zones, colour, sound design, endings, platform specs, common mistakes, final checklist), each mapped to Blade's tools |
 | `edl_versions`, `restore_version` | Every render is a numbered version with a note: compare them or go back ("the earlier one was better") - re-rendered fast from cache |

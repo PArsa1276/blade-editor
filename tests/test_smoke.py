@@ -342,3 +342,25 @@ def test_text_behind_subject(tmp_path):
     centre, side = a[480, 270], a[480, 60]
     assert centre[0] > 180 and centre[1] < 120  # subject (red) stays in front of the text
     assert side[0] > 180 and side[1] > 180       # the yellow text shows beside the subject
+
+
+def test_long_video_to_shorts(tmp_path, monkeypatch):
+    import json
+    from blade_editor import server
+    monkeypatch.setattr(server, "HOME", tmp_path / "projects")
+    src = tmp_path / "long.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=15:d=40",
+                    "-f", "lavfi", "-i", "sine=f=220:d=40", "-filter_complex",
+                    "[1:a]volume='if(between(t,20,32),0.9,0.1)*if(lt(mod(t,4),3),1,0)':eval=frame[a]",
+                    "-map", "0:v", "-map", "[a]", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", str(src)], check=True)
+    segs = [{"start": k * 4.0, "end": k * 4.0 + 3, "text": "Why is this loud?" if k == 5 else f"Line {k}.",
+             "words": [{"start": k * 4.0, "end": k * 4.0 + 3, "word": " word", "p": 0.9}]} for k in range(10)]
+    tp = tmp_path / "tr.json"
+    tp.write_text(json.dumps({"segments": segs}))
+    h = server.find_highlights(str(src), count=1, min_seconds=8, max_seconds=12, transcript_path=str(tp))
+    best = h["candidates"][0]
+    assert 18 <= best["start"] <= 22 and "loud/energetic" in best["why"]
+    r = server.make_shorts(str(src), [{"start": best["start"], "end": best["end"], "title": "HOOK"}],
+                           str(tmp_path / "out"), transcript_path=str(tp), preview=True)["shorts"][0]
+    assert r["pieces"] >= 2 and r["duration"] < best["end"] - best["start"]  # pauses removed

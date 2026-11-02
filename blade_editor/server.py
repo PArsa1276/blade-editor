@@ -15,7 +15,7 @@ from typing import Any
 from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, prompts, qa, recipes, render, sfx, text
+from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, prompts, qa, recipes, render, sfx, shorts, text
 
 HOME = Path(os.environ.get("BLADE_HOME", Path.home() / "blade_projects")).expanduser()
 
@@ -29,6 +29,8 @@ IDEAS: for a creative edit, call `edit_ideas` with the user's request first and 
 recipe (structure, rhythm, the "wow" trick) - adapted to the footage and the user's words. Read
 the 1-3 `edit_playbook` sections the job needs, and its checklist before the final render.
 Every render is a version: "go back" -> edl_versions + restore_version.
+LONG VIDEO -> SHORTS: transcript first, then find_highlights; pick by meaning (complete idea,
+hook in 3 s, payoff), then make_shorts.
 `learn_edit` saves a reference the user likes as a new recipe.
 
 DECIDE BEFORE THE FIRST RENDER: run `reference_breakdown` (when there is a reference) and
@@ -492,6 +494,45 @@ def restore_version(output_path: str, version: int, preview: bool = False, proje
 
 _render_edl = render_edl
 render_edl = mcp.tool()(render_edl)
+
+
+@mcp.tool()
+def find_highlights(path: str, count: int = 5, min_seconds: float = 20, max_seconds: float = 60,
+                    transcript_path: str | None = None, project: str | None = None) -> dict:
+    """Long video -> shorts, step 1: score the whole video (loudness, movement and - with a
+    transcript - dense speech, strong opening lines, complete sentences) and return the best
+    non-overlapping moments with their text (about count x 2, best first). For talking videos run
+    transcribe (+ fix_transcript) first and pass transcript_path: the moments then start and end on
+    sentences and you can read what is said. YOU choose the final `count` by meaning (a complete
+    idea, a strong hook in the first 3 s, a payoff), adjust start/end, write a short title for each,
+    then call make_shorts."""
+    tr = json.loads(Path(_abs(transcript_path)).read_text(encoding="utf-8")) if transcript_path else None
+    r = shorts.find(_abs(path), tr, count, min_seconds, max_seconds)
+    r["saved_json"] = _save(_project(project), f"highlights_{Path(path).stem}", r)
+    return r
+
+
+@mcp.tool()
+def make_shorts(path: str, shorts_list: list[dict], output_dir: str, transcript_path: str | None = None,
+                jump_cut: bool = True, captions: bool = True, width: int = 1080, height: int = 1920,
+                fps: int = 30, preview: bool = False, project: str | None = None) -> dict:
+    """Long video -> shorts, step 2: render each chosen moment as a finished vertical short.
+    shorts_list: [{start, end, title?}] in source seconds (from find_highlights, adjusted by you).
+    Each short gets: pauses removed (jump_cut), a crop that follows the action, a hook title for
+    3 s, karaoke captions from the transcript (moved onto the cut timeline), -14 LUFS. Files are
+    <output_dir>/short_01.mp4 ...; each EDL is saved, so one short can be changed with render_edl."""
+    tr = json.loads(Path(_abs(transcript_path)).read_text(encoding="utf-8")) if transcript_path else None
+    src, outd = _abs(path), Path(output_dir).expanduser().resolve()
+    outd.mkdir(parents=True, exist_ok=True)
+    done = []
+    for k, s in enumerate(shorts_list, 1):
+        edl = shorts.build_edl(src, float(s["start"]), float(s["end"]), str(outd / f"short_{k:02d}.mp4"),
+                               s.get("title"), tr, jump_cut, captions, width, height, fps)
+        edl_path = _save(_project(project), f"edl_short_{k:02d}", edl)
+        r = _render_edl(edl=edl, preview=preview, note=f"short {k}: {s.get('title') or ''}", project=project)
+        done.append({"short": k, "output": r["output"], "duration": r["duration"], "edl_path": edl_path,
+                     "pieces": len(edl["clips"]), "captions": sum(1 for t in edl["texts"] if "_raw" in t)})
+    return {"shorts": done, "next": "Check each with view_frames / quality_check."}
 
 
 @mcp.tool()
