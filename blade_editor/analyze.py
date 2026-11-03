@@ -84,15 +84,30 @@ def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True,
             continue
         cut_idx.append(i)
 
-    # Flashes: brightness rises fast and falls back within ~0.3 s.
+    # Flashes: brightness jumps up in 1-2 frames and the bright peak is short (<= ~0.3 s).
+    # A cut to a bright shot is not a flash: it rises in one frame too, but it stays bright
+    # for the whole shot (in fast edits shots are only ~0.5 s, so "falls back within 0.3 s"
+    # alone was true for them, and for brightness changes inside a shot).
     flashes = []
     span = max(2, int(0.3 * fps))
     for i in range(1, n - 1):
         before = luma[max(0, i - span): i].min()
         after = luma[i + 1: i + 1 + span].min() if i + 1 < n else luma[i]
-        if luma[i] - before > 35 and luma[i] - after > 25 and luma[i] > 120:
-            if not flashes or i - flashes[-1] > span:
-                flashes.append(i)
+        rise = luma[i] - before
+        if not (rise > 35 and luma[i] - after > 25 and luma[i] > 120):
+            continue
+        if luma[i] - luma[max(0, i - 2)] < 0.6 * rise:  # slow rise: light change, not a flash
+            continue
+        half = before + 0.5 * rise
+        lo, hi = i, i
+        while lo > 0 and luma[lo - 1] > half:
+            lo -= 1
+        while hi < n - 1 and luma[hi + 1] > half:
+            hi += 1
+        if hi - lo + 1 > span:  # stays bright: a bright shot
+            continue
+        if not flashes or i - flashes[-1] > span:
+            flashes.append(i)
 
     # A flash changes every pixel. Keep its cut only when the picture before the flash
     # differs from the picture after it (a flash cut); otherwise drop it.
@@ -108,7 +123,7 @@ def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True,
         fl = near[0]
         pre, post = max(0, fl - 2), min(n - 1, fl + span + 1)
         if _hd(pre, post) > 0.25 and not any(abs(k2 - fl) <= span for k2 in kept):
-            kept.append(fl)
+            kept.append(c)  # the cut's own frame: the flash peak can be frames later (off the beat)
     cut_idx = sorted(set(kept))
 
     # Camera motion between neighbour frames (skip cut frames).
