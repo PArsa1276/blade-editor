@@ -42,7 +42,7 @@ def ensure_kinetograph(timeout: float = 900) -> list[str]:
 
 
 def render(entry: str, out: str | Path, comp: str | None = None, props: dict | None = None,
-           draft: bool = False, timeout: float = 1800) -> dict:
+           draft: bool = False, timeout: float = 1800, env: dict | None = None) -> dict:
     kg = ensure_kinetograph()
     entry_p = Path(entry).resolve()
     out = Path(out)
@@ -58,7 +58,7 @@ def render(entry: str, out: str | Path, comp: str | None = None, props: dict | N
         if draft:
             cmd.append("--draft")
         p = subprocess.run(cmd, cwd=entry_p.parent, capture_output=True, text=True, timeout=timeout,
-                           env={**os.environ, "BLADE_BG": bg})
+                           env={**os.environ, **(env or {}), "BLADE_BG": bg})
         if p.returncode != 0:
             raise RuntimeError(f"kinetograph render failed:\n{(p.stderr or p.stdout)[-2000:]}")
     # alpha = 1 - (white - black); colour = black / alpha (unpremultiply).
@@ -86,3 +86,33 @@ def _identical(tmp: dict) -> bool:
                                "crop=8:8:0:0,scale=1:1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
                               capture_output=True).stdout
     return corner(tmp["black"]) == corner(tmp["white"])
+
+
+TEMPLATES_DIR = Path(__file__).with_name("motion_templates")
+TEMPLATES = {
+    "title": "Big title: staggered spring words, accent bar, ring payoff, float, fast exit. props: text, subtitle, color, accent, size",
+    "lower_third": "Name + role on a plate that grows from the side, light sweep, RTL-aware. props: name, role, color, accent, plate",
+    "counter": "Number counting up to an exact value, tabular digits, pop + ring at landing. props: value, prefix, suffix, label, color, accent",
+    "kinetic_words": "One big word per beat, key words punch in accent colour. props: text, beat (s per word), highlight, color, accent, size",
+    "cta": "Call-to-action pill: spring rise, press + ring payoff, pulse. props: text, color, accent, textColor",
+}
+
+
+def template(name: str, out: str | Path, props: dict | None = None, width: int = 1080, height: int = 1920,
+             fps: int = 30, duration: float = 3.0, draft: bool = False) -> dict:
+    """Render a built-in motion template to a transparent ProRes 4444 clip."""
+    import shutil
+    if name not in TEMPLATES:
+        raise ValueError(f"Unknown template '{name}'. Use: {', '.join(TEMPLATES)}")
+    out = Path(out)
+    work = out.parent / f".motion_{name}"
+    if work.exists():
+        shutil.rmtree(work)
+    shutil.copytree(TEMPLATES_DIR / name, work)
+    (work / "public").mkdir(exist_ok=True)
+    shutil.copy(Path(__file__).with_name("fonts") / "Vazirmatn-Black.ttf", work / "public")
+    r = render(str(work / "index.tsx"), out, "Main", props, draft,
+               env={"BLADE_W": str(int(width)), "BLADE_H": str(int(height)), "BLADE_FPS": str(int(fps)),
+                    "BLADE_DUR": str(float(duration))})
+    shutil.rmtree(work, ignore_errors=True)
+    return {**r, "template": name}

@@ -364,3 +364,22 @@ def test_long_video_to_shorts(tmp_path, monkeypatch):
     r = server.make_shorts(str(src), [{"start": best["start"], "end": best["end"], "title": "HOOK"}],
                            str(tmp_path / "out"), transcript_path=str(tp), preview=True)["shorts"][0]
     assert r["pieces"] >= 2 and r["duration"] < best["end"] - best["start"]  # pauses removed
+
+
+def test_motion_templates_follow_the_rules():
+    import os
+    import pytest
+    from blade_editor import motion
+    for name in motion.TEMPLATES:
+        src = (motion.TEMPLATES_DIR / name / "index.tsx").read_text()
+        assert 'env.BLADE_BG ?? "transparent"' in src  # exact alpha needs the background switch
+        assert "exitT(" in src and "clamp" in src      # exit inside the duration, clamped frames
+        assert 'dir={' in src                          # Persian/Arabic text is laid out right to left
+    with pytest.raises(ValueError):
+        motion.template("nope", "x.mov")
+    if not os.environ.get("BLADE_TEST_KG"):
+        pytest.skip("set BLADE_TEST_KG=1 to render a template with Kinetograph (slow)")
+    import tempfile
+    out = Path(tempfile.mkdtemp()) / "t.mov"
+    r = motion.template("counter", out, {"value": 50, "label": "تست"}, 270, 480, 15, 1.5, draft=True)
+    assert r["pix_fmt"].startswith("yuva") and abs(r["duration"] - 1.5) < 0.2

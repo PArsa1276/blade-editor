@@ -1,0 +1,6 @@
+Shared rules for every template (kept in each file so each file works alone):
+- size/fps/length from env BLADE_W, BLADE_H, BLADE_FPS, BLADE_DUR (set by Blade);
+- background from BLADE_BG (Blade renders black + white to get exact alpha);
+- enter -> hold (idle life) -> exit; exit faster than enter and finished before the last frame;
+- frame interpolate always clamped; spring output never clamped;
+- text in HTML divs (dir=rtl for Persian/Arabic), font Vazirmatn from public/.

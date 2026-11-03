@@ -29,6 +29,7 @@ Never deliver half versions. Before any render:
 | A FAST SPIN noted by the breakdown | `camera_preset spin360_holds` / `tilt_swing` with the angles you see (measured angles are too low) |
 | Long video (podcast, live, vlog) -> several shorts | `transcribe` + `fix_transcript` -> `find_highlights(transcript_path)` -> choose by meaning, write titles -> `make_shorts` |
 | Text behind the person/object, cutout, background blur/replace | `texts[].behind_subject: true` (big bold title wider than the subject); `subject_cutout` |
+| Animated title, name tag, counter, kinetic words, follow/subscribe CTA | `motion_template` (title, lower_third, counter, kinetic_words, cta) -> `overlays`; rules in the `blade-motion` skill |
 | 3D turn, card flip, orbit, perspective, designed titles, shapes, Lottie, kinetic text | `motion_graphic` (Kinetograph; templates in `examples/`) |
 | Impact on a beat | effects `zoom_punch` + `flash` + sfx `hit` on downbeats |
 | Hand-held jitter | effect `shake` (to add) / clip `stabilize: true` (to remove) |
