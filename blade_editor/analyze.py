@@ -61,13 +61,21 @@ def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True,
     # each compared with its own neighbourhood.
     k = max(3, int(fps))
 
-    def _local_median(x: np.ndarray) -> np.ndarray:
+    def _local_median(x: np.ndarray, skip_frozen: bool = False) -> np.ndarray:
         pad = np.pad(x, (k, k), mode="edge")
-        return np.array([np.median(np.concatenate([pad[i: i + k], pad[i + k + 1: i + 2 * k + 1]]))
-                         for i in range(n)])
+        out = []
+        for i in range(n):
+            nb = np.concatenate([pad[i: i + k], pad[i + k + 1: i + 2 * k + 1]])
+            if skip_frozen and (nb >= 0.5).any():
+                # Frozen frames (a held frame, a freeze at the end) are not the shot's normal
+                # motion: with them the median fell and normal motion next to a freeze looked
+                # like a cut (r2 at 13.33: neighbours 27-33, median 7.1 with 4 frozen frames).
+                nb = nb[nb >= 0.5]
+            out.append(np.median(nb))
+        return np.array(out)
 
     h_med = _local_median(hdist)
-    d_med = _local_median(diff)
+    d_med = _local_median(diff, skip_frozen=True)
     h_score = hdist - h_med
     d_ratio = diff / (d_med + 1.0)
     k_s = SENSITIVITY[sensitivity]  # "low" finds fewer cuts, "high" more
