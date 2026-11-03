@@ -160,11 +160,11 @@ def normalize(edl: dict) -> dict:
                              f"{c['_file_dur'] - c['in']:.2f}s).")
         if c.get("focus") == "auto" and not c["_image"]:
             c["focus"] = _auto_focus(src, c["in"], c["_src_dur"])
-        c.setdefault("effects", [])
+        # Own copies: the transition effects below must not change the caller's EDL.
+        c["effects"] = [dict(e) for e in c.get("effects") or []]
         effects.validate(c["effects"])
         tr = c.get("transition") or {"type": "cut"}
-        if isinstance(tr, str):
-            tr = {"type": tr}
+        tr = {"type": tr} if isinstance(tr, str) else dict(tr)
         tr.setdefault("dur", 0.3)
         c["transition"] = tr
         clips.append(c)
