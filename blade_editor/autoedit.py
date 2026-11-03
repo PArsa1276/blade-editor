@@ -17,6 +17,11 @@ PRESETS = {
     "cinematic": {"cut_every": 4, "punch": 0.0, "flash": 0.0,  "shake": 0.0,  "glitch": 0.0,  "grade": "teal_orange", "transition": "fade", "slow_zoom": True, "letterbox": True},
     "smooth":    {"cut_every": 2, "punch": 0.2, "flash": 0.1,  "shake": 0.0,  "glitch": 0.0,  "grade": "warm",        "transition": "cut", "slow_zoom": True},
     "glitch":    {"cut_every": 1, "punch": 0.4, "flash": 0.2,  "shake": 0.3,  "glitch": 0.6,  "grade": "cyber",       "transition": "cut"},
+    # velocity: shots of 2 beats that start on the beat. On a downbeat (once per bar) the shot
+    # starts slow (optical-flow slow motion) with a short flash and a soft zoom punch, then runs
+    # fast; other shots run fast. ramp: slow/fast speeds and the part of the shot that is slow.
+    "velocity":  {"cut_every": 2, "punch": 1.0, "flash": 1.0,  "shake": 0.0,  "glitch": 0.0,  "grade": "teal_orange", "transition": "cut",
+                  "ramp": {"slow": 0.35, "fast": 2.0, "hold": 0.45}},
 }
 
 
@@ -152,10 +157,14 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
     total = min(duration or music_len, music_len)
     # Start the first shot at 0 and cut on the beat grid after that.
     k = max(1, int(style.get("cut_every", 1)))
-    marks = [0.0] + [b for b in beats[k - 1::k] if 0.2 < b < total - 0.2] + [total]
+    ramp = style.get("ramp")
+    first = k - 1
+    if ramp and downbeats:  # cut on the grid that contains the downbeats (the strong beats)
+        first = next((j for j, b in enumerate(beats) if round(b, 3) in downbeats), k - 1) % k
+    marks = [0.0] + [b for b in beats[first::k] if 0.2 < b < total - 0.2] + [total]
     # In loud sections, cut twice as often (when the grid is coarse).
     # Only when the track has a clearly louder part (3 dB over the median); else keep the grid.
-    if k >= 2 and loud and np.percentile(loud, 75) > np.median(loud) + 3:
+    if k >= 2 and not ramp and loud and np.percentile(loud, 75) > np.median(loud) + 3:
         q = np.percentile(loud, 75)
         dense = [0.0]
         for a, b in zip(marks[:-1], marks[1:]):
@@ -175,43 +184,51 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
         length = b - a
         if length < 0.08:
             continue
+        accent = round(a, 3) in downbeats or (not ramp and round(a, 2) in strong) or i == 0
+        pieces = None
+        if ramp:  # [output seconds, speed] -> source seconds for each piece
+            slow = ramp["hold"] * length if accent else 0.0
+            pieces = [[o * sp, sp] for o, sp in ((slow, ramp["slow"]), (length - slow, ramp["fast"])) if o > 0.01]
+        need = sum(o for o, _ in pieces) if pieces else length
         src = order[i % len(order)] if keep_order else None
         best = None
         cands = [src] if src else order
         for s in cands:
-            wins = _score_windows(analyses[s], length)
+            wins = _score_windows(analyses[s], need)
             if not wins:
                 continue
             # Rank windows inside each source (0..1) so sources compete fairly.
             raw = np.array([w[1] for w in wins])
             ranks = raw.argsort().argsort() / max(1, len(raw) - 1)
             for (t, _), r in zip(wins, ranks):
-                overlap = any(t < ue and t + length > us for us, ue in used[s])
+                overlap = any(t < ue and t + need > us for us, ue in used[s])
                 score = (r - (5 if overlap else 0) - 0.35 * len(used[s])
                          - (0.5 if s == prev_src and len(order) > 1 else 0)
                          + float(rng.normal(0, 0.15)))
                 if best is None or score > best[2]:
                     best = (s, t, score)
         if best is None:
-            raise ValueError(f"No source is long enough for a {length:.2f}s shot.")
+            raise ValueError(f"No source is long enough for a {need:.2f}s shot.")
         s, t, _ = best
         prev_src = s
-        used[s].append((t, t + length))
-        accent = round(a, 3) in downbeats or round(a, 2) in strong or i == 0
+        used[s].append((t, t + need))
         fx = []
         if style.get("slow_zoom"):
             z = 1.0 + 0.08 * (1 if i % 2 == 0 else -1)
             fx.append({"type": "zoom", "from": 1.0 if z > 1 else 1.08, "to": z if z > 1 else 1.0})
         if accent and rng.random() < style.get("punch", 0):
-            fx.append({"type": "zoom_punch", "at": 0, "dur": min(0.3, length * 0.8), "amount": 0.18})
+            fx.append({"type": "zoom_punch", "at": 0, "dur": min(0.3, length * 0.8), "amount": 0.12 if ramp else 0.18})
         if accent and i > 0 and rng.random() < style.get("flash", 0):
-            fx.append({"type": "flash", "at": 0, "dur": min(0.15, length * 0.5), "amount": 0.85})
+            # velocity: a 3-frame flash; others: up to 0.15 s
+            fx.append({"type": "flash", "at": 0, "dur": 3 / fps if ramp else min(0.15, length * 0.5), "amount": 0.85})
         if rng.random() < style.get("shake", 0):
             fx.append({"type": "shake", "at": 0, "dur": min(0.35, length * 0.8), "amount": 22})
         if rng.random() < style.get("glitch", 0):
             fx.append({"type": "glitch", "at": max(0.0, length - 0.15), "dur": 0.12})
         tr = style.get("transition", "cut")
-        clip = {"src": s, "in": round(t, 3), "out": round(t + length, 3), "mute": True, "effects": fx}
+        clip = {"src": s, "in": round(t, 3), "out": round(t + need, 3), "mute": True, "effects": fx}
+        if pieces:
+            clip["ramp"] = [[round(o, 4), sp] for o, sp in pieces]
         if i > 0 and tr != "cut":
             clip["transition"] = {"type": tr, "dur": min(0.4, length * 0.3)}
             # A crossfade overlaps shots, so lengthen this shot to keep the cut on the beat.

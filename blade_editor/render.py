@@ -278,8 +278,12 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
         n, t, parts = len(c["ramp"]), 0.0, []
         # Keep stabilize/reverse from `v` (drop its final fps; the ramp sets fps after concat).
         graph = [f"[0:v]{','.join(v[:-1])},split={n}" + "".join(f"[r{k}]" for k in range(n))]
+        slows = [_slow(float(sp), smooth, fps, W, H, scale >= 1) for _, sp in c["ramp"]]
+        # Optical flow scales its piece to output size; concat needs the same size in every piece.
+        size = next((f[0] for f in slows if f and f[0].startswith("scale=")), None)
         for k, (ln, sp) in enumerate(c["ramp"]):
-            slow = "".join("," + f for f in _slow(float(sp), smooth, fps, W, H, scale >= 1))
+            f = slows[k] if not size or (slows[k] and slows[k][0] == size) else [size, *slows[k]]
+            slow = "".join("," + x for x in f)
             graph.append(f"[r{k}]trim=start={t:.4f}:duration={float(ln):.4f},setpts=(PTS-STARTPTS)/{float(sp):.5f}"
                          f"{slow}[q{k}]")
             parts.append(f"[q{k}]")
@@ -326,9 +330,13 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
     else:
         graph.append(f"[1:a]atrim=duration={D:.4f}[aout]")
 
+    # Write to a temporary name first: a failed ffmpeg run must not leave a broken file that the
+    # cache would use again on the next render.
+    part = seg.with_name(seg.stem + ".part.mkv")
     ff.run([*args, "-filter_complex", ";".join(graph), "-map", "[vout]", "-map", "[aout]",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "14", "-g", str(int(fps)),
-            "-c:a", "pcm_s16le", "-shortest", str(seg)])
+            "-c:a", "pcm_s16le", "-shortest", str(part)])
+    part.replace(seg)
     return seg
 
 

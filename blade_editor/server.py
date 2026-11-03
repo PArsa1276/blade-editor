@@ -415,7 +415,7 @@ def auto_edit(sources: list[str], music: str, output_path: str,
               keep_order: bool = False, seed: int = 7, preview: bool = False,
               project: str | None = None) -> dict:
     """Make a beat-synced edit from your clips and a music track in one call.
-    style: a preset name (hype, phonk, cinematic, smooth, glitch), a recipe saved with learn_edit,
+    style: a preset name (hype, phonk, cinematic, smooth, glitch, velocity), a recipe saved with learn_edit,
     a style dict from style_from_reference, or a path to a reference video. The EDL is saved so you
     can change it and call render_edl again."""
     src = [_abs(s) for s in sources]

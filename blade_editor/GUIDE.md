@@ -26,7 +26,8 @@ When you like it: "final version and quality check". The file is in your folder.
 ## 4. Styles
 
 **hype** (cut on every beat, punches, flashes) · **phonk** (black-and-white, much shake) ·
-**cinematic** (slow, film look) · **smooth** (calm, warm) · **glitch** (digital glitches).
+**cinematic** (slow, film look) · **smooth** (calm, warm) · **glitch** (digital glitches) ·
+**velocity** (fast, then slow motion with a flash on the strong beat).
 
 ## 5. Google Flow (optional)
 
