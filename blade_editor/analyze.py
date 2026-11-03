@@ -106,6 +106,13 @@ def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True,
             hi += 1
         if hi - lo + 1 > span:  # stays bright: a bright shot
             continue
+        # A flash returns to the same picture (histogram distance of frame i-2 and frame i+0.3 s
+        # <= 0.30; real flashes in velocity edits: 0.05-0.26, brightness changes inside fast
+        # POV shots: 0.31-0.78). Exception: an almost uniform white peak is a flash on a cut.
+        pre, post = max(0, i - 2), min(n - 1, i + span)
+        white = luma[i] >= 200 and f[i].std() <= 10
+        if not white and 0.5 * float(np.abs(hists[pre] - hists[post]).sum()) > 0.30:
+            continue
         if not flashes or i - flashes[-1] > span:
             flashes.append(i)
 
