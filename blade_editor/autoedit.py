@@ -175,7 +175,9 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
             dense.append(b)
         marks = sorted(set(round(m, 3) for m in dense))
 
-    analyses = {s: analyze.analyze_video(s, max_fps=15, include_audio=False) for s in sources}
+    # 30 fps: the cut rules are measured at 30 fps. At 15 fps fast footage moves twice as far
+    # per frame and real source cuts were missed, so shots crossed a cut inside the source.
+    analyses = {s: analyze.analyze_video(s, max_fps=30, include_audio=False) for s in sources}
     used: dict[str, list[tuple[float, float]]] = {s: [] for s in sources}
     clips = []
     order = list(sources)
