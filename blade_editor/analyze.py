@@ -79,10 +79,25 @@ def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True,
     h_score = hdist - h_med
     d_ratio = diff / (d_med + 1.0)
     k_s = SENSITIVITY[sensitivity]  # "low" finds fewer cuts, "high" more
-    is_cut = ((h_score > np.maximum(0.2, 2.5 * h_med) * k_s) |
+    rule1 = h_score > np.maximum(0.2, 2.5 * h_med) * k_s
+    is_cut = (rule1 |
               ((h_score > 0.1 * k_s) & (d_ratio > 3.0 * k_s)) |
               ((diff - d_med > 25 * k_s) & (d_ratio > 2.5 * k_s)))
-    cand = [i for i in range(3, n) if is_cut[i]]  # frames 1-2: decoder/filter start-up noise
+    win0 = np.outer(np.hanning(f.shape[1]), np.hanning(f.shape[2])).astype(np.float32)
+
+    def _moved(i: int) -> bool:
+        # The same picture, moved (a fast pan or whip): a strong global-shift match of 2-80 px
+        # between two frames with texture. Measured: false pan cuts conf 36-146; real cuts
+        # (also into moving shots) 9-15. Black/flat frames (std < 15) give random strong
+        # peaks (cuts from black: std 4-6; textured frames: 14-77), and a peak at shift 0 is a
+        # static logo or border, so both are not used.
+        if min(f[i - 1].std(), f[i].std()) < 15:
+            return False
+        dx, dy, conf = _phase_shift(f[i - 1], f[i], win0)
+        return conf > 25 and 2 <= np.hypot(dx, dy) <= 80
+
+    # frames 1-2: decoder/filter start-up noise; rules 2+3 only: not when the picture just moved
+    cand = [i for i in range(3, n) if is_cut[i] and (rule1[i] or not _moved(i))]
     min_gap = max(2, int(fps * 0.08))
     cut_idx: list[int] = []
     for i in cand:

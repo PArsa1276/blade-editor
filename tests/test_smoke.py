@@ -466,9 +466,10 @@ def test_real_cut_after_fast_motion_is_found(tmp_path):
     assert any(abs(c - 2.0) < 0.07 for c in _fast_pan_then_cut(tmp_path))
 
 
-@pytest.mark.xfail(strict=True, reason="known limit: a very fast pan gives 4 false cuts (rules 2+3: the histogram changes a lot, so it is not the pixel-only rule 3)")
-def test_fast_motion_makes_no_cut(tmp_path):
-    assert [c for c in _fast_pan_then_cut(tmp_path) if abs(c - 2.0) >= 0.07] == []
+def test_fast_motion_makes_at_most_one_false_cut(tmp_path):
+    # Was 4: the same picture moved by a fast pan is not a cut. One is left (0.1 s): there the
+    # pan moves ~70 px of a 160 px frame in one frame and the shift match is weak, like a cut.
+    assert len([c for c in _fast_pan_then_cut(tmp_path) if abs(c - 2.0) >= 0.07]) <= 1
 
 
 def test_motion_next_to_a_frozen_tail_is_not_a_cut(tmp_path):
