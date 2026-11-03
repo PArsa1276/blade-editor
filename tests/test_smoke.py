@@ -494,3 +494,14 @@ def test_slow_ramp_and_slow_speed_do_not_freeze_at_the_end(tmp_path):
         frames, _ = ff.read_gray_frames(out, width=160, fps=30)
         d = np.abs(np.diff(frames.astype(np.float32), axis=0)).mean(axis=(1, 2))
         assert d[-3:].min() > 0.3, (clip, d[-6:])
+
+
+def test_auto_edit_windows_do_not_cross_a_source_cut(media, tmp_path):
+    # src.mp4 has cuts at 3 s and 6 s. Velocity reads more source than the shot length (2x
+    # parts), and no clip may run across a cut inside the source.
+    edl = autoedit.build_edl([str(media / "src.mp4")], str(media / "beat.wav"), str(tmp_path / "v.mp4"),
+                             "velocity", duration=6, width=360, height=640)
+    for c in edl["clips"]:
+        a = c["in"]
+        b = a + sum(o for o, _ in c["ramp"])
+        assert not any(a + 0.02 < x < b - 0.02 for x in (3.0, 6.0)), (a, b)
