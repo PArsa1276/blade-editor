@@ -93,7 +93,10 @@ mcp.tool = _tool_with_errors
 
 
 def _project(name: str | None) -> Path:
-    p = HOME / (name or "default")
+    name = name or "default"
+    if not re.fullmatch(r"[^/\\:]+", name) or name.strip(".") == "":
+        raise ValueError(f"Project name {name!r} is not valid: use a simple name without / \\ : or '..'.")
+    p = HOME / name
     p.mkdir(parents=True, exist_ok=True)
     return p
 

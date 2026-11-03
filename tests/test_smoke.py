@@ -383,3 +383,19 @@ def test_motion_templates_follow_the_rules():
     out = Path(tempfile.mkdtemp()) / "t.mov"
     r = motion.template("counter", out, {"value": 50, "label": "تست"}, 270, 480, 15, 1.5, draft=True)
     assert r["pix_fmt"].startswith("yuva") and abs(r["duration"] - 1.5) < 0.2
+
+
+def test_normalize_keeps_the_callers_edl_and_project_names_are_checked(tmp_path, monkeypatch):
+    edl = {"output": {"path": str(tmp_path / "o.mp4"), "width": 320, "height": 240},
+           "clips": [{"src": "color:red", "duration": 1, "effects": [], "transition": {"type": "flash"}},
+                     {"src": "color:blue", "duration": 1, "transition": "whip"}]}
+    for _ in range(2):
+        n = render.normalize(edl)
+    assert edl["clips"][0]["effects"] == [] and "dur" not in edl["clips"][0]["transition"]
+    assert [e["type"] for e in n["clips"][0]["effects"]] == ["flash"]
+    from blade_editor import server
+    monkeypatch.setattr(server, "HOME", tmp_path)
+    assert server._project("my edit").name == "my edit"
+    for bad in ["../x", "a/b", "..", "c:\\x"]:
+        with pytest.raises(ValueError):
+            server._project(bad)
