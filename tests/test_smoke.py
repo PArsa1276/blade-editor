@@ -450,3 +450,22 @@ def test_cut_to_bright_shot_is_not_a_flash_but_a_real_flash_is(tmp_path):
     out = render.render(edl, tmp_path / "work")["output"]
     r = analyze.analyze_video(out, include_audio=False)
     assert len(r["flashes"]) == 1 and abs(r["flashes"][0] - 1.0) < 0.07
+
+
+def _fast_pan_then_cut(tmp_path):
+    # A very fast back-and-forth pan (the picture changes a lot every frame, no jump), then a
+    # real cut at 2.0 s.
+    _ff("-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=30:d=2,crop=320:180:x='800+800*sin(t*12)':y='450+450*sin(t*7)'",
+        "-f", "lavfi", "-i", "mandelbrot=s=320x180:r=30,trim=duration=1",
+        "-filter_complex", "[0]format=yuv420p,setsar=1[a];[1]format=yuv420p,setsar=1[b];[a][b]concat=n=2:v=1[v]",
+        "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "fast.mp4"))
+    return analyze.analyze_video(str(tmp_path / "fast.mp4"), include_audio=False)["cuts"]
+
+
+def test_real_cut_after_fast_motion_is_found(tmp_path):
+    assert any(abs(c - 2.0) < 0.07 for c in _fast_pan_then_cut(tmp_path))
+
+
+@pytest.mark.xfail(strict=True, reason="known limit: a very fast pan still gives false cuts (3 now, 7 before)")
+def test_fast_motion_makes_no_cut(tmp_path):
+    assert [c for c in _fast_pan_then_cut(tmp_path) if abs(c - 2.0) >= 0.07] == []
