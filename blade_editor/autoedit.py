@@ -17,10 +17,10 @@ PRESETS = {
     "cinematic": {"cut_every": 4, "punch": 0.0, "flash": 0.0,  "shake": 0.0,  "glitch": 0.0,  "grade": "teal_orange", "transition": "fade", "slow_zoom": True, "letterbox": True},
     "smooth":    {"cut_every": 2, "punch": 0.2, "flash": 0.1,  "shake": 0.0,  "glitch": 0.0,  "grade": "warm",        "transition": "cut", "slow_zoom": True},
     "glitch":    {"cut_every": 1, "punch": 0.4, "flash": 0.2,  "shake": 0.3,  "glitch": 0.6,  "grade": "cyber",       "transition": "cut"},
-    # velocity: shots of 2 beats that start on the beat. On a downbeat (once per bar) the shot
-    # starts slow (optical-flow slow motion) with a short flash and a soft zoom punch, then runs
+    # velocity: shots of 1 beat (in 3 of 4 real velocity edits we measured, the median shot was
+    # 0.33-0.57 s). On a downbeat (once per bar) the shot starts slow (optical-flow slow motion) with a short flash and a soft zoom punch, then runs
     # fast; other shots run fast. ramp: slow/fast speeds and the part of the shot that is slow.
-    "velocity":  {"cut_every": 2, "punch": 1.0, "flash": 1.0,  "shake": 0.0,  "glitch": 0.0,  "grade": "teal_orange", "transition": "cut",
+    "velocity":  {"cut_every": 1, "punch": 1.0, "flash": 1.0,  "shake": 0.0,  "glitch": 0.0,  "grade": "teal_orange", "transition": "cut",
                   "ramp": {"slow": 0.35, "fast": 2.0, "hold": 0.45}},
 }
 
