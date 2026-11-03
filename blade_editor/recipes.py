@@ -36,7 +36,7 @@ RECIPES: list[dict] = [
         "cuts": "2-4 beats", "camera": "zoom in during the slow part (camera keys)",
         "transitions": "zoom transition or whip between ramps", "effects": "motion_blur on fast parts, zoom_punch on the hit",
         "text": "minimal, small, lower third", "grade": "teal_orange or warm", "sfx": "swish on each speed-up",
-        "build": ["analyze_music (hits)", "render_edl with clip ramp [[src_s, speed], ...] so the slow part lands on a hit",
+        "build": ["auto_edit(style='velocity') for a fast start, or:", "analyze_music (hits)", "render_edl with clip ramp [[src_s, speed], ...] so the slow part lands on a hit",
                   "motion_blur on fast parts", "quality_check"],
         "wow": "The slowest frame should be the most beautiful pose/moment - pick it with view_frames.",
         "avoid": "ramps on shaky footage (stabilize first)",

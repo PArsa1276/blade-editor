@@ -82,7 +82,7 @@ Complete beginners: follow [INSTALL.md](INSTALL.md) (English) or [INSTALL_FA.md]
 ### ✂️ Edit
 | Tool | What it does |
 |---|---|
-| `auto_edit` | Beat-synced edit in one call, in a preset style (`hype`, `phonk`, `cinematic`, `smooth`, `glitch`) or in the style of a reference video |
+| `auto_edit` | Beat-synced edit in one call, in a preset style (`hype`, `phonk`, `cinematic`, `smooth`, `glitch`, `velocity`) or in the style of a reference video |
 | `render_edl` | Full control with a JSON edit list; preview at half size first; unchanged clips are cached, so changes render fast |
 | `speech_segments` | Finds the parts with speech for jump cuts (pause removal) |
 | `find_highlights` -> `make_shorts` | **Long video -> several shorts**: scores the whole video (loudness, movement, dense speech, strong opening lines, full sentences), the AI reads the candidates and picks the best ideas, then each becomes a finished 9:16 short: pauses removed, crop that follows the action, hook title, karaoke captions |

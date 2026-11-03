@@ -399,3 +399,33 @@ def test_normalize_keeps_the_callers_edl_and_project_names_are_checked(tmp_path,
     for bad in ["../x", "a/b", "..", "c:\\x"]:
         with pytest.raises(ValueError):
             server._project(bad)
+
+
+def test_velocity_preset_ramps_on_downbeats(media, tmp_path):
+    out = tmp_path / "vel.mp4"
+    edl = autoedit.build_edl([str(media / "src.mp4")], str(media / "beat.wav"), str(out),
+                             "velocity", duration=6, width=360, height=640)
+    meta = edl.pop("_meta")
+    downs = {round(d, 3) for d in audio.analyze_beats(str(media / "beat.wav"))["downbeats"]}
+    t, flashes = 0.0, []
+    for c in edl["clips"]:
+        assert c["ramp"] and all(sp in (0.35, 2.0) for _, sp in c["ramp"])
+        slow = c["ramp"][0][1] == 0.35
+        if any(e["type"] == "flash" for e in c["effects"]):
+            assert slow and round(t, 3) in downs  # flash only on a strong beat, with the slow part
+            flashes.append(t)
+        t += sum(o / sp for o, sp in c["ramp"])
+    assert flashes and len(flashes) <= meta["duration"] / 2 + 1  # at most one per bar (4 beats = 2 s)
+    out = render.render(edl, tmp_path / "work", preview=True)["output"]
+    assert abs(ff.probe(out)["duration"] - 6) < 0.15
+    s = analyze.analyze_video(out)["summary"]
+    assert s.get("cuts_on_beat_share", 0) >= 0.5
+
+
+def test_ramp_with_optical_flow_and_fast_part_renders(media, tmp_path):
+    # Flow slow motion scales its piece; the fast piece must get the same size for concat.
+    edl = {"output": {"path": str(tmp_path / "r.mp4"), "width": 160, "height": 90, "fps": 30},
+           "clips": [{"src": str(media / "src.mp4"), "in": 0.5, "ramp": [[0.2, 0.35], [1.2, 2.0]]}]}
+    out = render.render(edl, tmp_path / "work")["output"]
+    assert abs(ff.probe(out)["duration"] - (0.2 / 0.35 + 0.6)) < 0.1
+    assert not list((tmp_path / "work").rglob("*.part.mkv"))
