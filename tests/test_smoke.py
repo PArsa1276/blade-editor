@@ -429,3 +429,24 @@ def test_ramp_with_optical_flow_and_fast_part_renders(media, tmp_path):
     out = render.render(edl, tmp_path / "work")["output"]
     assert abs(ff.probe(out)["duration"] - (0.2 / 0.35 + 0.6)) < 0.1
     assert not list((tmp_path / "work").rglob("*.part.mkv"))
+
+
+def test_cut_to_bright_shot_is_not_a_flash_but_a_real_flash_is(tmp_path):
+    # dark 1 s -> bright 0.6 s (getting darker, like a fast camera move) -> dark 1 s: two cuts and
+    # no flash. The old detector called it a flash (brightness fell by > 25 within 0.3 s).
+    dark = "testsrc2=s=320x180:r=30:d={d},eq=brightness=-0.35"
+    _ff("-f", "lavfi", "-i", dark.format(d=1), "-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=0.6,eq=brightness='0.4-0.5*t':eval=frame",
+        "-f", "lavfi", "-i", dark.format(d=1) + ",hflip",
+        "-filter_complex", "[0][1][2]concat=n=3:v=1[v]", "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast",
+        str(tmp_path / "bright_cut.mp4"))
+    r = analyze.analyze_video(str(tmp_path / "bright_cut.mp4"), include_audio=False)
+    assert r["flashes"] == []
+    assert any(abs(c - 1.0) < 0.07 for c in r["cuts"]) and any(abs(c - 1.6) < 0.07 for c in r["cuts"])
+    # A real 3-frame flash (Blade's flash effect) on one dark shot is still found.
+    _ff("-f", "lavfi", "-i", dark.format(d=2), "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "dark.mp4"))
+    edl = {"output": {"path": str(tmp_path / "flash.mp4"), "width": 320, "height": 180, "fps": 30},
+           "clips": [{"src": str(tmp_path / "dark.mp4"), "in": 0, "out": 2,
+                      "effects": [{"type": "flash", "at": 1.0, "dur": 0.1, "amount": 0.85}]}]}
+    out = render.render(edl, tmp_path / "work")["output"]
+    r = analyze.analyze_video(out, include_audio=False)
+    assert len(r["flashes"]) == 1 and abs(r["flashes"][0] - 1.0) < 0.07
