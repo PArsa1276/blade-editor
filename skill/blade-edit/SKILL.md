@@ -64,6 +64,23 @@ reference. Report the path, what matches, and the honest limits.
   Blade opens the Flow tab itself. If `flow_status` says it is not connected, give the user
   `flow_setup` steps.
 
+## Velocity: check the slow shots by eye
+
+`auto_edit(style="velocity")` returns `meta.slow_shots` (output start/end, src, in,
+source_seconds). Numbers cannot tell a still subject from real movement (a face the camera
+follows reads as "much motion"), so after the preview:
+1. `view_frames(output, start, end, every=0.1)` for each slow shot (one sheet per shot).
+2. Pass: the slow part shows movement that reads as speed - a jump, a turn, a kick of snow or
+   water, a fast pass of the camera past things. Fail: a face, a person standing, a talking
+   head, an empty landscape.
+3. For each failed shot pick a moving moment (look at the sources with `view_frames`; choose a
+   window inside one shot of the source, `in` + `source_seconds` before the next source cut).
+   The slow part is only the first ~0.1 s of source: put `in` ON the peak (rider over the rail,
+   top of the jump), not before it, and check that the subject is inside the 9:16 crop (a small
+   subject at the frame edge of a 16:9 source is cut off). Change only that clip's `in` (or
+   `src`) in the saved EDL (`edl_path`); keep its `ramp`.
+4. `render_edl` once and check those shots again. One round only (blade-ponytail).
+
 ## Gotchas
 
 - Clip effect times are from the clip start; `texts`, `sfx`, `overlays`, `global_effects` use output time.

@@ -416,6 +416,10 @@ def test_velocity_preset_ramps_on_downbeats(media, tmp_path):
             flashes.append(t)
         t += sum(o / sp for o, sp in c["ramp"])
     assert flashes and len(flashes) <= meta["duration"] / 2 + 1  # at most one per bar (4 beats = 2 s)
+    # The agent gets the slow shots to check by eye (output times match the clips).
+    slow = meta["slow_shots"]
+    assert [x["clip"] for x in slow] == [k for k, c in enumerate(edl["clips"]) if len(c["ramp"]) > 1]
+    assert all(x["end"] > x["start"] for x in slow) and "view_frames" in meta["check"]
     out = render.render(edl, tmp_path / "work", preview=True)["output"]
     assert abs(ff.probe(out)["duration"] - 6) < 0.15
     s = analyze.analyze_video(out)["summary"]

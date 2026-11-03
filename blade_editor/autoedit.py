@@ -254,4 +254,22 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
                              "pos": "center", "anim": "pop"})
     edl["_meta"] = {"bpm": beats_info["bpm"], "cuts": len(clips), "style": style,
                     "duration": round(total, 3), "warnings": warnings}
+    if ramp:
+        # The numbers cannot tell a still subject (a face the camera follows) from real movement,
+        # so the agent checks the slow shots by eye after the render.
+        slow, t = [], 0.0
+        for k, c in enumerate(clips):
+            d = sum(o / sp for o, sp in c["ramp"])
+            if len(c["ramp"]) > 1:
+                slow.append({"clip": k, "start": round(t, 3), "end": round(t + d, 3), "src": c["src"],
+                             "in": c["in"], "source_seconds": round(sum(o for o, _ in c["ramp"]), 3)})
+            t += d
+        edl["_meta"]["slow_shots"] = slow
+        edl["_meta"]["check"] = (
+            "Look at each slow shot: view_frames(output, start, end, every=0.1). The slow part must "
+            "show something that moves (a jump, a turn, a splash). If the subject is still (a face, "
+            "a person standing), change only that clip's 'in' in the saved EDL to a moving moment "
+            "(same source or another; in + source_seconds must stay inside one shot of the source). "
+            "The slow part is only the first ~0.1 s of source: put 'in' ON the peak of the action, "
+            "with the subject inside the crop. Then call render_edl once. One round only.")
     return edl
