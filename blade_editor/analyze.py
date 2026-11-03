@@ -83,6 +83,16 @@ def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True,
                 cut_idx[-1] = i
             continue
         cut_idx.append(i)
+    # Candidates closer than 0.2 s to each other are one event (fast POV motion, a dip to black,
+    # a strobe or a glitch), not several cuts: one cut at the strongest frame.
+    gap = max(min_gap, int(round(0.2 * fps)))
+    groups: list[list[int]] = []
+    for i in cut_idx:
+        if groups and i - groups[-1][0] <= gap:  # from the event's first frame: no chains
+            groups[-1].append(i)
+        else:
+            groups.append([i])
+    cut_idx = [max(g, key=lambda j: hdist[j]) for g in groups]
 
     # Flashes: brightness jumps up in 1-2 frames and the bright peak is short (<= ~0.3 s).
     # A cut to a bright shot is not a flash: it rises in one frame too, but it stays bright
