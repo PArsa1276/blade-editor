@@ -24,4 +24,4 @@ blade-editor = "blade_editor.server:main"
 packages = ["blade_editor"]
 
 [tool.setuptools.package-data]
-blade_editor = ["fonts/*.ttf", "GUIDE.md", "PLAYBOOK.md", "extension_id.txt"]
+blade_editor = ["fonts/*.ttf", "GUIDE.md", "PLAYBOOK.md", "extension_id.txt", "motion_templates/*/*.tsx"]

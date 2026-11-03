@@ -36,7 +36,8 @@ hook in 3 s, payoff), then make_shorts.
 DECIDE BEFORE THE FIRST RENDER: run `reference_breakdown` (when there is a reference) and
 `view_frames` on the reference and sources. Map each part to a tool: camera moves -> `camera`
 effect with the breakdown's keys (or `camera_preset`); 3D turns, designed titles/graphics ->
-`motion_graphic` (Kinetograph); missing shots -> Google Flow: keyframe images first (`flow_generate_image`, same references for every
+`motion_graphic` (Kinetograph); hook titles, name tags, numbers, CTAs -> `motion_template`
+(transparent overlay; rules in the blade-motion skill); missing shots -> Google Flow: keyframe images first (`flow_generate_image`, same references for every
 shot), then video from them (`first_frame`/`last_frame`, prompt with `video_prompt`); ask before
 spending credits);
 beats -> clip in/out on beats or `auto_edit`. Tell the user briefly what will match exactly,
@@ -679,11 +680,27 @@ def make_sfx(kind: str, duration: float | None = None, project: str | None = Non
 
 
 @mcp.tool()
+def motion_template(name: str, output_path: str, props: dict | None = None, width: int = 1080,
+                    height: int = 1920, fps: int = 30, duration: float = 3.0, draft: bool = False) -> dict:
+    """Professional animated graphics from ready templates (Kinetograph, installs itself), rendered
+    to a TRANSPARENT ProRes 4444 clip - put it in EDL `overlays` (width 1.0, x 0.5, y 0.5, start =
+    where it should appear). Templates: title, lower_third, counter, kinetic_words, cta (see
+    `templates` in the error for their props). Persian/Arabic text works. Match width/height/fps
+    to the edit; colours as '#RRGGBB'. Built on motion-design rules: enter -> hold -> exit, spring
+    overshoot, stagger, idle life, a payoff at the key moment. Add a sound effect 2-3 frames
+    before each hit (make_sfx + sfx). For a custom design write your own TSX with motion_graphic."""
+    r = motion.template(name, str(Path(output_path).expanduser().resolve()), props, width, height, fps,
+                        duration, draft)
+    r["overlay"] = {"src": r["path"], "x": 0.5, "y": 0.5, "width": 1.0}
+    return r
+
+
+@mcp.tool()
 def motion_graphic(entry: str, output_path: str, comp: str | None = None, props: dict | None = None,
                    draft: bool = False) -> dict:
     """Render a Kinetograph (Remotion-style TSX) motion graphic - title, lower third, kinetic text,
     shapes, Lottie - to a TRANSPARENT ProRes 4444 clip for `overlays` (width 1.0 = full frame).
-    Needs Node.js and `npm i -D kinetograph` next to the entry, and the composition must use
+    Needs Node.js (Kinetograph installs itself on first use), and the composition must use
     background={process.env.BLADE_BG ?? "transparent"}. Write Persian/Arabic text in a
     <div dir="rtl"> (HTML path), not <Text> (no right-to-left support there)."""
     return motion.render(_abs(entry), str(Path(output_path).expanduser().resolve()), comp, props, draft)
