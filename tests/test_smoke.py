@@ -466,6 +466,16 @@ def test_real_cut_after_fast_motion_is_found(tmp_path):
     assert any(abs(c - 2.0) < 0.07 for c in _fast_pan_then_cut(tmp_path))
 
 
-@pytest.mark.xfail(strict=True, reason="known limit: a very fast pan still gives false cuts (3 now, 7 before)")
+@pytest.mark.xfail(strict=True, reason="known limit: a very fast pan gives 4 false cuts (rules 2+3: the histogram changes a lot, so it is not the pixel-only rule 3)")
 def test_fast_motion_makes_no_cut(tmp_path):
     assert [c for c in _fast_pan_then_cut(tmp_path) if abs(c - 2.0) >= 0.07] == []
+
+
+def test_motion_next_to_a_frozen_tail_is_not_a_cut(tmp_path):
+    # Changing picture (noise that grows stronger, like faster and faster motion), then the last
+    # frame held for 0.15 s (as at the end of r2): the frozen frames must not make the normal
+    # change just before them look like a cut.
+    _ff("-f", "lavfi", "-i", "nullsrc=s=320x180:r=30:d=2,geq=lum='128+(10+190*T*T/4)*(random(0)-0.5)':cb=128:cr=128,"
+        "tpad=stop_mode=clone:stop_duration=0.15",
+        "-c:v", "ffv1", str(tmp_path / "tail.mkv"))  # lossless: the held frames are exactly equal
+    assert analyze.analyze_video(str(tmp_path / "tail.mkv"), include_audio=False)["cuts"] == []
