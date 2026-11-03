@@ -238,12 +238,17 @@ def _slow(speed: float, mode: str, fps: int, W: int, H: int, final: bool) -> lis
             f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"]
 
 
+# Change this when a segment's picture changes for the same clip, so old cached segments are
+# not used again (v2: slowed clips no longer end with frozen frames).
+SEGMENT_VERSION = "v2"
+
+
 def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
     W = int(out["width"] * scale) // 2 * 2
     H = int(out["height"] * scale) // 2 * 2
     fps = out["fps"]
     key = json.dumps({k: v for k, v in c.items() if not k.startswith("_") or k in ("_dur",)},
-                     sort_keys=True, default=str) + f"{W}x{H}@{fps}"
+                     sort_keys=True, default=str) + f"{W}x{H}@{fps}" + SEGMENT_VERSION
     src = c["src"]
     if not str(src).startswith("color:"):
         st = Path(src).stat()
@@ -255,12 +260,17 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
 
     D = c["_dur"]
     args: list[str] = []
+    extra = 0.0
     if str(src).startswith("color:"):
         args += ["-f", "lavfi", "-i", f"color=c={src[6:]}:s={W}x{H}:r={fps}:d={D:.4f}"]
     elif c["_image"]:
         args += ["-loop", "1", "-framerate", str(fps), "-t", f"{D:.4f}", "-i", src]
     else:
-        args += ["-ss", f"{c['in']:.4f}", "-t", f"{c['_src_dur']:.4f}", "-i", src]
+        # Read a little more than needed: a slowed-down stream ends at its last frame's start, so
+        # without the next frame the last frame's time (x 1/speed: ~3 frames at 0.35x) was lost
+        # and the gap was filled with a frozen frame. The output is trimmed to the exact length.
+        extra = 0.0 if c.get("reverse") else 0.25
+        args += ["-ss", f"{c['in']:.4f}", "-t", f"{c['_src_dur'] + extra:.4f}", "-i", src]
     args += ["-f", "lavfi", "-t", f"{D:.4f}", "-i", "anullsrc=r=48000:cl=stereo"]
 
     v = ["setpts=PTS-STARTPTS"]
@@ -284,8 +294,9 @@ def _segment(c: dict, out: dict, seg_dir: Path, scale: float) -> Path:
         for k, (ln, sp) in enumerate(c["ramp"]):
             f = slows[k] if not size or (slows[k] and slows[k][0] == size) else [size, *slows[k]]
             slow = "".join("," + x for x in f)
-            graph.append(f"[r{k}]trim=start={t:.4f}:duration={float(ln):.4f},setpts=(PTS-STARTPTS)/{float(sp):.5f}"
-                         f"{slow}[q{k}]")
+            graph.append(f"[r{k}]trim=start={t:.4f}:duration={float(ln) + extra:.4f},"
+                         f"setpts=(PTS-STARTPTS)/{float(sp):.5f}{slow},"
+                         f"trim=duration={float(ln) / float(sp):.4f},setpts=PTS-STARTPTS[q{k}]")
             parts.append(f"[q{k}]")
             t += float(ln)
         graph.append(f"{''.join(parts)}concat=n={n}:v=1:a=0,fps={fps}[v0]")

@@ -479,3 +479,17 @@ def test_motion_next_to_a_frozen_tail_is_not_a_cut(tmp_path):
         "tpad=stop_mode=clone:stop_duration=0.15",
         "-c:v", "ffv1", str(tmp_path / "tail.mkv"))  # lossless: the held frames are exactly equal
     assert analyze.analyze_video(str(tmp_path / "tail.mkv"), include_audio=False)["cuts"] == []
+
+
+def test_slow_ramp_and_slow_speed_do_not_freeze_at_the_end(tmp_path):
+    # A slowed stream used to end one source frame early (x 1/speed); the gap was a frozen frame.
+    _ff("-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=30:d=4,crop=320:180:x='t*200':y=300",
+        "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "pan.mp4"))
+    for i, clip in enumerate([{"ramp": [[0.3, 0.35], [0.6, 2.0]], "slowmo": "flow"},
+                              {"speed": 0.25, "out": 1.0, "slowmo": "blend"}]):
+        edl = {"output": {"path": str(tmp_path / f"o{i}.mp4"), "width": 320, "height": 180, "fps": 30},
+               "clips": [{"src": str(tmp_path / "pan.mp4"), "in": 0.5, **clip}]}
+        out = render.render(edl, tmp_path / "work")["output"]
+        frames, _ = ff.read_gray_frames(out, width=160, fps=30)
+        d = np.abs(np.diff(frames.astype(np.float32), axis=0)).mean(axis=(1, 2))
+        assert d[-3:].min() > 0.3, (clip, d[-6:])
