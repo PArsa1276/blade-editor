@@ -117,6 +117,43 @@ def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True,
             groups.append([i])
     cut_idx = [max(g, key=lambda j: hdist[j]) for g in groups]
 
+    # Crossfades: no single frame changes much, so the rules above miss most of them. In the
+    # middle of a crossfade the frame is the average of the frames ~0.1 s before and after
+    # ("mix" = |f - (a+b)/2| / |a-b|). Measured on 24 crossfades: 16 had mix <= 0.40; frames
+    # outside transitions (pans, zooms, fast motion) never went below 0.43 when |a-b| >= 15.
+    kd = max(2, int(round(0.1 * fps)))
+    mix = np.full(n, 9.0)
+    for i in range(kd, n - kd):
+        a, b = f[i - kd], f[i + kd]
+        dab = float(np.abs(a - b).mean())
+        if dab >= 15:
+            mix[i] = float(np.abs(f[i] - (a + b) / 2).mean()) / dab
+    near = max(2, int(round(0.3 * fps)))
+
+    def _new_content(i: int) -> bool:
+        # A blur or brightness pulse on one shot also mixes; a crossfade changes the content:
+        # structural correlation of the frames 0.2 s before and after. Crossfades -0.27..0.68,
+        # blur pulses in velocity edits 0.65..0.97 (most >= 0.76).
+        a = f[max(0, i - 2 * kd)] - f[max(0, i - 2 * kd)].mean()
+        b = f[min(n - 1, i + 2 * kd)] - f[min(n - 1, i + 2 * kd)].mean()
+        if float((a * b).sum() / np.sqrt((a * a).sum() * (b * b).sum() + 1e-9)) > 0.70:
+            return False
+        # A fast pan can also look mixed: there the middle frame is the frame before/after moved
+        # far (fast pan: 54-78 px, conf 134-430; crossfades: shift <= 15 px when conf > 25).
+        for x, y in ((f[i - kd], f[i]), (f[i], f[i + kd])):
+            dx, dy, conf = _phase_shift(x, y, win0)
+            if conf > 25 and np.hypot(dx, dy) > 20:
+                return False
+        return True
+
+    dissolves: list[int] = []
+    for i in range(kd, n - kd):
+        if mix[i] <= 0.40 and mix[i] == mix[max(0, i - near): i + near + 1].min() and _new_content(i):
+            # A cut found by the rules above (at the edge of a crossfade up to ~1 s) is the same event.
+            if not any(abs(i - c) <= 0.5 * fps for c in cut_idx) and not any(abs(i - d) <= near for d in dissolves):
+                dissolves.append(i)
+    cut_idx = sorted(cut_idx + dissolves)
+
     # Flashes: brightness jumps up in 1-2 frames and the bright peak is short (<= ~0.3 s).
     # A cut to a bright shot is not a flash: it rises in one frame too, but it stays bright
     # for the whole shot (in fast edits shots are only ~0.5 s, so "falls back within 0.3 s"
@@ -233,6 +270,7 @@ def analyze_video(path: str, max_fps: float = 30.0, include_audio: bool = True,
         "analysis_fps": fps,
         "frames_analyzed": n,
         "cuts": [round(i / fps, 3) for i in cut_idx],
+        "dissolves": [round(i / fps, 3) for i in dissolves],  # also in cuts: the middle of a crossfade
         # 0..1: how far over the threshold each cut is. Low values are the ones worth a look.
         "cut_confidence": [round(float(min(1.0, max(hdist[i] / 0.5, diff[i] / 60))), 2) for i in cut_idx],
         "flashes": [round(i / fps, 3) for i in flashes],
