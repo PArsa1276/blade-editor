@@ -129,7 +129,12 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
         m = WhisperModel(model, device=dev, compute_type=compute)
         # temperature 0 and no carry-over of earlier text: the same file gives the same text, and one
         # wrong sentence does not spread into the next ones.
+        # vad speech_pad_ms 1000: the default (400) cut the start/end of sentences and whole
+        # sentences were lost. Persian benchmark (FLEURS fa_ir, 3 sets): WER 28.2/37.7/46.6% ->
+        # 21.7/37.1/37.3%, CER 15.3/25.7/36.0% -> 8.1/23.3/24.3%; still no text over 40 s of music.
+        # (No VAD at all was also better on errors, but it invented text over long music.)
         segs, inf = m.transcribe(samples, language=language, word_timestamps=True, vad_filter=True,
+                                 vad_parameters={"speech_pad_ms": 1000},
                                  beam_size=5, temperature=0.0, condition_on_previous_text=False,
                                  initial_prompt=prompt or None)
         return list(segs), inf  # list() runs the decoding here, where a GPU error can be caught
