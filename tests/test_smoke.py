@@ -564,10 +564,12 @@ def test_speech_without_text_is_decoded_again(monkeypatch):
 
     def decode(x, off):
         calls.append(round(off, 1))
-        text = "یک جمله که جا افتاده بود" if off < 10 else "موسیقی"
-        return [{"start": off + 0.3, "end": off + 1.5, "text": text, "words": []}]
+        if off < 10:
+            return [{"start": off + 0.3, "end": off + 1.5, "text": "یک جمله که جا افتاده بود", "words": []}]
+        return [{"start": off + 0.3, "end": off + 0.9, "text": "موسیقی", "words": []},
+                {"start": off + 1.0, "end": off + 1.5, "text": "PYM JBZ", "words": []}]
 
     first = [{"start": 0.2, "end": 1.9, "text": "جمله اول", "words": []}]
-    out = captions._fill_holes(np.zeros(15 * sr, dtype=np.float32), first, decode)
+    out = captions._fill_holes(np.zeros(15 * sr, dtype=np.float32), first, decode, "fa")
     assert calls == [4.7, 11.7]                     # only the two holes, not the covered speech
     assert [s["text"] for s in out] == ["جمله اول", "یک جمله که جا افتاده بود"]

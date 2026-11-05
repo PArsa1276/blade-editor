@@ -1,26 +1,215 @@
-{"data": "Google FLEURS fa_ir test (CC BY 4.0), built with benchmarks/fleurs_fa.py",
+{
+ "data": "Google FLEURS fa_ir test (CC BY 4.0), built with benchmarks/fleurs_fa.py",
  "model": "large-v3-turbo, CPU int8, language=fa, beam 5, temperature 0, condition_on_previous_text False",
- "note": "set2 used music140.wav and set3 music104.wav for the music gaps",
+ "note": "set2 used music140.wav and set3 music104.wav for the music gaps; set4 = recordings 61-90, 2-5 s gaps, every 3rd gap music140",
  "runs": [
-  {"set": 1, "vad": "default (pad 400 ms)", "wer": 0.2816, "cer": 0.1527, "in_window": 0.9881, "hyp_words": 710, "ref_words": 799},
-  {"set": 1, "vad": "default + Claude review (blind)", "wer": 0.164, "cer": 0.1226, "in_window": 0.9896},
-  {"set": 1, "vad": "off", "wer": 0.2403, "cer": 0.1139, "in_window": 1.0},
-  {"set": 1, "vad": "max_speech 15 s", "wer": 0.2791, "cer": 0.1366},
-  {"set": 1, "vad": "max_speech 10 s", "wer": 0.2578, "cer": 0.1273},
-  {"set": 1, "vad": "threshold 0.3", "wer": 0.3104, "cer": 0.2009},
-  {"set": 1, "vad": "threshold 0.2", "wer": 0.2478, "cer": 0.1072},
-  {"set": 1, "vad": "pad 1000 ms (PR #25)", "wer": 0.2165, "cer": 0.0807},
-  {"set": 1, "vad": "threshold 0.3 + pad 800", "wer": 0.2991, "cer": 0.1762},
-  {"set": 2, "vad": "default", "wer": 0.3767, "cer": 0.2565, "invented_words": 1},
-  {"set": 2, "vad": "off", "wer": 0.3354, "cer": 0.1869, "invented_words": 1},
-  {"set": 2, "vad": "max_speech 10 s", "wer": 0.3842, "cer": 0.276, "invented_words": 1},
-  {"set": 2, "vad": "threshold 0.3", "wer": 0.3792, "cer": 0.2488, "invented_words": 0},
-  {"set": 2, "vad": "threshold 0.2", "wer": 0.3917, "cer": 0.2626, "invented_words": 0},
-  {"set": 2, "vad": "pad 1000 ms (PR #25)", "wer": 0.3705, "cer": 0.2334, "invented_words": 0},
-  {"set": 2, "vad": "threshold 0.3 + pad 800", "wer": 0.3642, "cer": 0.223, "invented_words": 0},
-  {"set": 3, "vad": "default", "wer": 0.4658, "cer": 0.36, "in_window": 0.9926, "hyp_words": 517, "ref_words": 730, "invented_words": 0},
-  {"set": 3, "vad": "pad 1000 ms (PR #25)", "wer": 0.3726, "cer": 0.2427, "in_window": 0.9917, "hyp_words": 640, "ref_words": 730, "invented_words": 0},
-  {"set": "long gaps (40 s music, sentence, 20 s silence, 25 s music)", "vad": "default", "invented": []},
-  {"set": "long gaps", "vad": "off", "invented": ["موسیقی", "PYM JBZ", "موسیقی"]},
-  {"set": "long gaps", "vad": "pad 1000 ms / threshold 0.2 / 0.3 / pad 800", "invented": []}
- ]}
+  {
+   "set": 1,
+   "vad": "default (pad 400 ms)",
+   "wer": 0.2816,
+   "cer": 0.1527,
+   "in_window": 0.9881,
+   "hyp_words": 710,
+   "ref_words": 799
+  },
+  {
+   "set": 1,
+   "vad": "default + Claude review (blind)",
+   "wer": 0.164,
+   "cer": 0.1226,
+   "in_window": 0.9896
+  },
+  {
+   "set": 1,
+   "vad": "off",
+   "wer": 0.2403,
+   "cer": 0.1139,
+   "in_window": 1.0
+  },
+  {
+   "set": 1,
+   "vad": "max_speech 15 s",
+   "wer": 0.2791,
+   "cer": 0.1366
+  },
+  {
+   "set": 1,
+   "vad": "max_speech 10 s",
+   "wer": 0.2578,
+   "cer": 0.1273
+  },
+  {
+   "set": 1,
+   "vad": "threshold 0.3",
+   "wer": 0.3104,
+   "cer": 0.2009
+  },
+  {
+   "set": 1,
+   "vad": "threshold 0.2",
+   "wer": 0.2478,
+   "cer": 0.1072
+  },
+  {
+   "set": 1,
+   "vad": "pad 1000 ms (PR #25)",
+   "wer": 0.2165,
+   "cer": 0.0807
+  },
+  {
+   "set": 1,
+   "vad": "threshold 0.3 + pad 800",
+   "wer": 0.2991,
+   "cer": 0.1762
+  },
+  {
+   "set": 2,
+   "vad": "default",
+   "wer": 0.3767,
+   "cer": 0.2565,
+   "invented_words": 1
+  },
+  {
+   "set": 2,
+   "vad": "off",
+   "wer": 0.3354,
+   "cer": 0.1869,
+   "invented_words": 1
+  },
+  {
+   "set": 2,
+   "vad": "max_speech 10 s",
+   "wer": 0.3842,
+   "cer": 0.276,
+   "invented_words": 1
+  },
+  {
+   "set": 2,
+   "vad": "threshold 0.3",
+   "wer": 0.3792,
+   "cer": 0.2488,
+   "invented_words": 0
+  },
+  {
+   "set": 2,
+   "vad": "threshold 0.2",
+   "wer": 0.3917,
+   "cer": 0.2626,
+   "invented_words": 0
+  },
+  {
+   "set": 2,
+   "vad": "pad 1000 ms (PR #25)",
+   "wer": 0.3705,
+   "cer": 0.2334,
+   "invented_words": 0
+  },
+  {
+   "set": 2,
+   "vad": "threshold 0.3 + pad 800",
+   "wer": 0.3642,
+   "cer": 0.223,
+   "invented_words": 0
+  },
+  {
+   "set": 3,
+   "vad": "default",
+   "wer": 0.4658,
+   "cer": 0.36,
+   "in_window": 0.9926,
+   "hyp_words": 517,
+   "ref_words": 730,
+   "invented_words": 0
+  },
+  {
+   "set": 3,
+   "vad": "pad 1000 ms (PR #25)",
+   "wer": 0.3726,
+   "cer": 0.2427,
+   "in_window": 0.9917,
+   "hyp_words": 640,
+   "ref_words": 730,
+   "invented_words": 0
+  },
+  {
+   "set": "long gaps (40 s music, sentence, 20 s silence, 25 s music)",
+   "vad": "default",
+   "invented": []
+  },
+  {
+   "set": "long gaps",
+   "vad": "off",
+   "invented": [
+    "موسیقی",
+    "PYM JBZ",
+    "موسیقی"
+   ]
+  },
+  {
+   "set": "long gaps",
+   "vad": "pad 1000 ms / threshold 0.2 / 0.3 / pad 800",
+   "invented": []
+  },
+  {
+   "set": 3,
+   "vad": "pad 1000 (PR #25) + Claude review (blind)",
+   "wer": 0.2575,
+   "cer": 0.2132,
+   "in_window": 0.9928
+  },
+  {
+   "set": 4,
+   "vad": "pad 1000 (PR #25)",
+   "wer": 0.3088,
+   "cer": 0.1545,
+   "in_window": 0.9964,
+   "hyp_words": 726,
+   "ref_words": 787,
+   "invented_words": 0
+  },
+  {
+   "set": 1,
+   "vad": "PR #26 second pass",
+   "wer": 0.2028,
+   "cer": 0.0576,
+   "in_window": 1.0,
+   "hyp_words": 799,
+   "ref_words": 799
+  },
+  {
+   "set": 2,
+   "vad": "PR #26 second pass",
+   "wer": 0.2365,
+   "cer": 0.0814,
+   "in_window": 1.0,
+   "hyp_words": 797,
+   "ref_words": 799,
+   "invented_words": 0
+  },
+  {
+   "set": 3,
+   "vad": "PR #26 second pass",
+   "wer": 0.3041,
+   "cer": 0.138,
+   "in_window": 0.9926,
+   "hyp_words": 722,
+   "ref_words": 730,
+   "invented_words": 5
+  },
+  {
+   "set": 4,
+   "vad": "PR #26 second pass",
+   "wer": 0.2668,
+   "cer": 0.0984,
+   "in_window": 1.0,
+   "hyp_words": 779,
+   "ref_words": 787,
+   "invented_words": 0
+  },
+  {
+   "set": "long gaps",
+   "vad": "PR #26 second pass",
+   "invented": []
+  }
+ ]
+}

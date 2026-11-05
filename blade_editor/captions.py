@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import os
 from pathlib import Path
 
@@ -110,7 +111,12 @@ def _openai(samples, model: str, language, device: str, prompt) -> tuple[list, s
 NON_SPEECH = {"موسیقی", "موزیک", "music", "تشویق", "خنده", "applause", "laughter"}
 
 
-def _fill_holes(samples, segs: list[dict], decode) -> list[dict]:
+# Scripts of languages written without Latin letters: a hole that gives only Latin letters there is
+# noise (the Persian benchmark got "PYM JBZ" over music twice, and nothing real).
+SCRIPT = {"fa": r"[\u0600-\u06FF]", "ar": r"[\u0600-\u06FF]", "ur": r"[\u0600-\u06FF]", "ps": r"[\u0600-\u06FF]"}
+
+
+def _fill_holes(samples, segs: list[dict], decode, language: str | None = None) -> list[dict]:
     """Second pass: speech (VAD) that got no text at all is decoded again on its own.
 
     In one long pass Whisper sometimes returns nothing for a whole sentence (Persian benchmark:
@@ -142,8 +148,11 @@ def _fill_holes(samples, segs: list[dict], decode) -> list[dict]:
         a0, b0 = max(0.0, a - 0.3), b + 0.3
         for s in decode(samples[int(a0 * sr):int(b0 * sr)], a0):
             words = "".join(ch for ch in s["text"].lower() if ch.isalnum() or ch.isspace()).split()
-            if words and not all(w in NON_SPEECH for w in words):
-                new.append(s)
+            if not words or all(w in NON_SPEECH for w in words):
+                continue
+            if language in SCRIPT and not re.search(SCRIPT[language], s["text"]):
+                continue
+            new.append(s)
     return sorted(segs + new, key=lambda s: s["start"])
 
 
@@ -204,7 +213,7 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
                            "p": round(float(w.probability), 2)} for w in (s.words or [])]}
 
     out = [seg(s) for s in segments]
-    out = _fill_holes(samples, out, lambda x, off: [seg(s, off) for s in run_on(x)])
+    out = _fill_holes(samples, out, lambda x, off: [seg(s, off) for s in run_on(x)], language or info.language)
     return {"language": info.language, "duration": round(info.duration, 3), "device": device,
             "model": model, "segments": out}
 
