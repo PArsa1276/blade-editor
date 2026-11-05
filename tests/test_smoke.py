@@ -509,3 +509,21 @@ def test_auto_edit_windows_do_not_cross_a_source_cut(media, tmp_path):
         a = c["in"]
         b = a + sum(o for o, _ in c["ramp"])
         assert not any(a + 0.02 < x < b - 0.02 for x in (3.0, 6.0)), (a, b)
+
+
+def test_crossfade_is_found_but_a_blur_pulse_is_not(tmp_path):
+    # 0.4 s crossfade (1.2-1.6 s) between two views of the same kind of picture: no single
+    # frame changes much, so the frame-to-frame rules found no cut here.
+    _ff("-f", "lavfi", "-i", "mandelbrot=s=320x180:r=30:start_x=-0.743643887:start_y=0.131825904,trim=duration=3",
+        "-f", "lavfi", "-i", "mandelbrot=s=320x180:r=30:start_x=-1.25066:start_y=0.02012,trim=duration=3",
+        "-filter_complex", "[0]format=yuv420p,settb=AVTB[a];[1]format=yuv420p,settb=AVTB,setpts=PTS-STARTPTS[b];"
+                           "[a][b]xfade=transition=fade:duration=0.4:offset=1.2[v]",
+        "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "fade.mp4"))
+    cuts = analyze.analyze_video(str(tmp_path / "fade.mp4"), include_audio=False)["cuts"]
+    assert len(cuts) == 1 and 1.2 <= cuts[0] <= 1.6, cuts
+    # A blur pulse on one shot (a velocity effect) mixes frames too, but the content stays.
+    k = "if(between(T\\,1.2\\,1.8)\\,1-abs(T-1.5)/0.3\\,0)"
+    _ff("-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=3",
+        "-filter_complex", f"[0]split[a][b];[b]boxblur=12[bb];[a][bb]blend=all_expr='A*(1-{k})+B*{k}'[v]",
+        "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "blur.mp4"))
+    assert analyze.analyze_video(str(tmp_path / "blur.mp4"), include_audio=False)["cuts"] == []
