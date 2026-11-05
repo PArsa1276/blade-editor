@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import os
 from pathlib import Path
 
@@ -106,6 +107,55 @@ def _openai(samples, model: str, language, device: str, prompt) -> tuple[list, s
     return segs, r.get("language"), dev
 
 
+# Whisper writes these for music or noise where nobody speaks (seen on the Persian benchmark).
+NON_SPEECH = {"موسیقی", "موزیک", "music", "تشویق", "خنده", "applause", "laughter"}
+
+
+# Scripts of languages written without Latin letters: a hole that gives only Latin letters there is
+# noise (the Persian benchmark got "PYM JBZ" over music twice, and nothing real).
+SCRIPT = {"fa": r"[\u0600-\u06FF]", "ar": r"[\u0600-\u06FF]", "ur": r"[\u0600-\u06FF]", "ps": r"[\u0600-\u06FF]"}
+
+
+def _fill_holes(samples, segs: list[dict], decode, language: str | None = None) -> list[dict]:
+    """Second pass: speech (VAD) that got no text at all is decoded again on its own.
+
+    In one long pass Whisper sometimes returns nothing for a whole sentence (Persian benchmark:
+    6 of 30 sentences, half of all word errors). Holes >= 1 s are decoded alone; segments that
+    are only a non-speech label ("موسیقی" for music) are dropped.
+    """
+    try:
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+    except ImportError:
+        return segs
+    sr = 16000
+    speech = [[a["start"] / sr, a["end"] / sr] for a in get_speech_timestamps(samples, VadOptions(speech_pad_ms=200))]
+    merged: list[list[float]] = []
+    for a, b in speech:
+        if merged and a - merged[-1][1] < 0.5:
+            merged[-1][1] = b
+        else:
+            merged.append([a, b])
+    covered = [(s["start"] - 0.3, s["end"] + 0.3) for s in segs]
+    holes = []
+    for a, b in merged:
+        pieces = [(a, b)]
+        for c0, c1 in covered:
+            pieces = [q for p0, p1 in pieces for q in
+                      ([(p0, p1)] if c1 <= p0 or c0 >= p1 else [x for x in ((p0, c0), (c1, p1)) if x[1] > x[0]])]
+        holes += [(p0, p1) for p0, p1 in pieces if p1 - p0 >= 1.0]
+    new = []
+    for a, b in holes:
+        a0, b0 = max(0.0, a - 0.3), b + 0.3
+        for s in decode(samples[int(a0 * sr):int(b0 * sr)], a0):
+            words = "".join(ch for ch in s["text"].lower() if ch.isalnum() or ch.isspace()).split()
+            if not words or all(w in NON_SPEECH for w in words):
+                continue
+            if language in SCRIPT and not re.search(SCRIPT[language], s["text"]):
+                continue
+            new.append(s)
+    return sorted(segs + new, key=lambda s: s["start"])
+
+
 def transcribe(path: str, language: str | None = None, model: str | None = None, device: str = "auto",
                prompt: str | None = None) -> dict:
     from . import ff
@@ -127,6 +177,7 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
 
     def run(dev: str, compute: str):
         m = WhisperModel(model, device=dev, compute_type=compute)
+        used.update(m=m)
         # temperature 0 and no carry-over of earlier text: the same file gives the same text, and one
         # wrong sentence does not spread into the next ones.
         # vad speech_pad_ms 1000: the default (400) cut the start/end of sentences and whole
@@ -139,6 +190,15 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
                                  initial_prompt=prompt or None)
         return list(segs), inf  # list() runs the decoding here, where a GPU error can be caught
 
+    used: dict = {}
+
+    def run_on(x):
+        # The second pass (holes, see _fill_holes) uses the model that worked; no VAD: it is speech.
+        segs, _ = used["m"].transcribe(x, language=language or info.language, word_timestamps=True, vad_filter=False,
+                               beam_size=5, temperature=0.0, condition_on_previous_text=False,
+                               initial_prompt=prompt or None)
+        return list(segs)
+
     try:
         segments, info = run(device, "auto")
     except (RuntimeError, OSError) as e:
@@ -147,14 +207,13 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
             raise
         segments, info = run("cpu", "int8")
         device = f"cpu (GPU failed: {str(e)[:80]})"
-    out = []
-    for s in segments:
-        out.append({
-            "start": round(s.start, 3), "end": round(s.end, 3), "text": s.text.strip(),
-            "words": [{"start": round(w.start, 3), "end": round(w.end, 3), "word": w.word,
-                       "p": round(float(w.probability), 2)}
-                      for w in (s.words or [])],
-        })
+    def seg(s, off: float = 0.0) -> dict:
+        return {"start": round(s.start + off, 3), "end": round(s.end + off, 3), "text": s.text.strip(),
+                "words": [{"start": round(w.start + off, 3), "end": round(w.end + off, 3), "word": w.word,
+                           "p": round(float(w.probability), 2)} for w in (s.words or [])]}
+
+    out = [seg(s) for s in segments]
+    out = _fill_holes(samples, out, lambda x, off: [seg(s, off) for s in run_on(x)], language or info.language)
     return {"language": info.language, "duration": round(info.duration, 3), "device": device,
             "model": model, "segments": out}
 
