@@ -81,6 +81,20 @@ follows reads as "much motion"), so after the preview:
    `src`) in the saved EDL (`edl_path`); keep its `ramp`.
 4. `render_edl` once and check those shots again. One round only (blade-ponytail).
 
+## Optional: rea-video for the parts Blade does not measure
+
+[rea-video](https://github.com/JuneYaooo/rea-video) (Apache-2.0, separate install) reverse-engineers
+a reference. Use it only when the user has it installed AND the reference needs what Blade cannot
+measure: how each shot was made (live / AI / 3D / code - reliable only with a vision model, `--vlm`),
+burned-in text with its timing and style (needs its `[ocr]` extra), voice/music separation, sound
+effects (with a vision model).
+- `rea-video decompose ref.mp4 -o out/ref --lang en` (+ `--vlm` when a model is configured).
+- Map its plan to Blade: AI shots -> `video_prompt` + `flow_generate_video`; code/template shots ->
+  `motion_graphic`; text tracks -> EDL `texts`; real footage -> the user's clips.
+- Keep cuts and BPM from Blade (`reference_breakdown`, `analyze_music`). Measured on Blade's velocity
+  benchmark (EDL ground truth): Blade cut F1 0.96-0.98, rea-video 0.93; without a vision model
+  rea-video called real snow/parkour footage "3D + AI" and gave 139.7 BPM for a 104 BPM track.
+
 ## Gotchas
 
 - Clip effect times are from the clip start; `texts`, `sfx`, `overlays`, `global_effects` use output time.
