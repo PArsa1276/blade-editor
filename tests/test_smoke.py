@@ -527,3 +527,25 @@ def test_crossfade_is_found_but_a_blur_pulse_is_not(tmp_path):
         "-filter_complex", f"[0]split[a][b];[b]boxblur=12[bb];[a][bb]blend=all_expr='A*(1-{k})+B*{k}'[v]",
         "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "blur.mp4"))
     assert analyze.analyze_video(str(tmp_path / "blur.mp4"), include_audio=False)["cuts"] == []
+
+
+def test_transcribe_keeps_speech_edges(tmp_path, monkeypatch):
+    # The VAD must keep 1 s around speech: with the default 0.4 s whole Persian sentences were
+    # dropped (benchmarks/HISTORY_FA.md, captions). Checked with a fake faster-whisper.
+    import sys
+    import types
+    from blade_editor import captions
+    seen = {}
+
+    class M:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, samples, **kw):
+            seen.update(kw)
+            return [], types.SimpleNamespace(language="fa", duration=1.0)
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=M))
+    _ff("-f", "lavfi", "-i", "sine=f=300:d=1", str(tmp_path / "a.wav"))
+    captions.transcribe(str(tmp_path / "a.wav"), language="fa", model="large-v3-turbo", device="cpu")
+    assert seen["vad_filter"] and seen["vad_parameters"]["speech_pad_ms"] == 1000
