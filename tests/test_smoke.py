@@ -549,3 +549,25 @@ def test_transcribe_keeps_speech_edges(tmp_path, monkeypatch):
     _ff("-f", "lavfi", "-i", "sine=f=300:d=1", str(tmp_path / "a.wav"))
     captions.transcribe(str(tmp_path / "a.wav"), language="fa", model="large-v3-turbo", device="cpu")
     assert seen["vad_filter"] and seen["vad_parameters"]["speech_pad_ms"] == 1000
+
+
+def test_speech_without_text_is_decoded_again(monkeypatch):
+    # Whisper sometimes returns nothing for a whole sentence; speech holes >= 1 s are decoded
+    # again alone, and a hole that only gives the music label is dropped.
+    pytest.importorskip("faster_whisper")
+    import faster_whisper.vad as fvad
+    from blade_editor import captions
+    sr = 16000
+    monkeypatch.setattr(fvad, "get_speech_timestamps", lambda x, opts: [
+        {"start": 0, "end": 2 * sr}, {"start": 5 * sr, "end": 8 * sr}, {"start": 12 * sr, "end": 14 * sr}])
+    calls = []
+
+    def decode(x, off):
+        calls.append(round(off, 1))
+        text = "یک جمله که جا افتاده بود" if off < 10 else "موسیقی"
+        return [{"start": off + 0.3, "end": off + 1.5, "text": text, "words": []}]
+
+    first = [{"start": 0.2, "end": 1.9, "text": "جمله اول", "words": []}]
+    out = captions._fill_holes(np.zeros(15 * sr, dtype=np.float32), first, decode)
+    assert calls == [4.7, 11.7]                     # only the two holes, not the covered speech
+    assert [s["text"] for s in out] == ["جمله اول", "یک جمله که جا افتاده بود"]
