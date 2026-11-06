@@ -35,7 +35,7 @@ def ensure_kinetograph(timeout: float = 900) -> list[str]:
         if not (KG_HOME / "package.json").exists():
             (KG_HOME / "package.json").write_text('{"name": "blade-kinetograph", "private": true}')
         p = subprocess.run([npm, "install", "--no-fund", "--no-audit", "kinetograph"], cwd=KG_HOME,
-                           capture_output=True, text=True, timeout=timeout)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
         if p.returncode != 0 or not cli.exists():
             raise RuntimeError(f"Could not install Kinetograph automatically:\n{(p.stderr or p.stdout)[-1500:]}")
     return [node, str(cli)]
@@ -57,7 +57,7 @@ def render(entry: str, out: str | Path, comp: str | None = None, props: dict | N
             cmd += ["--props", json.dumps(props, ensure_ascii=False)]
         if draft:
             cmd.append("--draft")
-        p = subprocess.run(cmd, cwd=entry_p.parent, capture_output=True, text=True, timeout=timeout,
+        p = subprocess.run(cmd, cwd=entry_p.parent, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
                            env={**os.environ, **(env or {}), "BLADE_BG": bg})
         if p.returncode != 0:
             raise RuntimeError(f"kinetograph render failed:\n{(p.stderr or p.stdout)[-2000:]}")
