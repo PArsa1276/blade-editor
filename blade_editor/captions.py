@@ -156,6 +156,52 @@ def _fill_holes(samples, segs: list[dict], decode, language: str | None = None) 
     return sorted(segs + new, key=lambda s: s["start"])
 
 
+GPU_FIX = ("For the GPU, install NVIDIA's CUDA 12 libraries into Blade's Python (no separate CUDA install): "
+           "<Blade python> -m pip install \"nvidia-cublas-cu12\" \"nvidia-cudnn-cu12>=9,<10\" "
+           "(Windows: %USERPROFILE%\\.blade-editor\\venv\\Scripts\\python.exe). An NVIDIA driver for CUDA 12 is also needed.")
+
+
+def _cuda_lib_dirs(windows: bool | None = None) -> list[str]:
+    """Folders of NVIDIA's pip packages (nvidia-cublas-cu12, nvidia-cudnn-cu12) with their libraries:
+    <site-packages>/nvidia/<name>/bin on Windows (the .dll files), .../lib elsewhere."""
+    import importlib.util
+    windows = os.name == "nt" if windows is None else windows
+    try:
+        spec = importlib.util.find_spec("nvidia")
+    except (ImportError, ValueError):
+        return []
+    out = []
+    for root in (spec.submodule_search_locations if spec else None) or []:
+        for name in ("cublas", "cudnn", "cuda_runtime", "cuda_nvrtc"):
+            d = Path(root) / name / ("bin" if windows else "lib")
+            if d.is_dir() and str(d) not in out:
+                out.append(str(d))
+    return out
+
+
+def _load_cuda_libs() -> list[str]:
+    """Make the CUDA 12 libraries from the pip packages findable before CTranslate2 needs them.
+    Without this, Windows says "cublas64_12.dll is not found" and the GPU is not used."""
+    dirs = _cuda_lib_dirs()
+    if os.name == "nt":
+        for d in dirs:
+            try:
+                os.add_dll_directory(d)
+            except (OSError, AttributeError):
+                pass
+        if dirs:
+            os.environ["PATH"] = os.pathsep.join(dirs + [os.environ.get("PATH", "")])
+    else:  # dlopen does not read a changed LD_LIBRARY_PATH: load the libraries now, globally
+        import ctypes
+        for d in dirs:
+            for f in sorted(Path(d).glob("lib*.so*")):
+                try:
+                    ctypes.CDLL(str(f), mode=ctypes.RTLD_GLOBAL)
+                except OSError:
+                    pass
+    return dirs
+
+
 def transcribe(path: str, language: str | None = None, model: str | None = None, device: str = "auto",
                prompt: str | None = None) -> dict:
     from . import ff
@@ -199,6 +245,9 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
                                initial_prompt=prompt or None)
         return list(segs)
 
+    note = None
+    if device != "cpu":
+        _load_cuda_libs()
     try:
         segments, info = run(device, "auto")
     except (RuntimeError, OSError) as e:
@@ -207,6 +256,8 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
             raise
         segments, info = run("cpu", "int8")
         device = f"cpu (GPU failed: {str(e)[:80]})"
+        if re.search(r"cublas|cudnn|cuda|\.dll|\.so", str(e), re.I):
+            note = GPU_FIX
     def seg(s, off: float = 0.0) -> dict:
         return {"start": round(s.start + off, 3), "end": round(s.end + off, 3), "text": s.text.strip(),
                 "words": [{"start": round(w.start + off, 3), "end": round(w.end + off, 3), "word": w.word,
@@ -214,8 +265,11 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
 
     out = [seg(s) for s in segments]
     out = _fill_holes(samples, out, lambda x, off: [seg(s, off) for s in run_on(x)], language or info.language)
-    return {"language": info.language, "duration": round(info.duration, 3), "device": device,
-            "model": model, "segments": out}
+    res = {"language": info.language, "duration": round(info.duration, 3), "device": device,
+           "model": model, "segments": out}
+    if note:
+        res["gpu_fix"] = note  # tell the user: the CPU works, but the GPU would be much faster
+    return res
 
 
 def review_text(tr: dict, low: float = 0.5) -> str:

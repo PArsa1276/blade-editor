@@ -27,7 +27,12 @@ Say "Installing Blade Editor into its own folder ($HOME\.blade-editor\venv)"
 py -3 -m venv "$HOME\.blade-editor\venv"
 $spy = "$HOME\.blade-editor\venv\Scripts\python.exe"
 & $spy -m pip install -q --upgrade pip
-& $spy -m pip install -q ".[captions,subject]"
+$extras = "captions,subject"
+if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+  $extras += ",gpu"  # NVIDIA GPU: CUDA 12 libraries for fast captions (else "cublas64_12.dll is not found")
+  Write-Host "NVIDIA GPU found: installing its CUDA 12 libraries for captions (about 1 GB)"
+}
+& $spy -m pip install -q ".[$extras]"
 & $spy -c "import blade_editor.server"
 if ($LASTEXITCODE -ne 0) { Write-Host "Blade Editor could not be installed. Send the text above to your assistant."; exit 1 }
 Write-Host "OK: Blade Editor installed"

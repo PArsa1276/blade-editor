@@ -1,6 +1,7 @@
 """End-to-end smoke tests on synthetic media (needs ffmpeg)."""
 
 import subprocess
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -696,3 +697,37 @@ def test_probe_reads_persian_metadata_with_a_windows_locale(tmp_path, monkeypatc
     monkeypatch.setattr(subprocess.Popen, "__init__", windows_default)
     info = ff.probe(out)
     assert info["video"]["width"] == 160 and info["duration"] > 0.5
+
+
+def test_gpu_finds_cuda_dlls_from_pip_and_explains_a_missing_one(tmp_path, monkeypatch):
+    # Windows: "cublas64_12.dll is not found" -> Blade went to the CPU and did not say how to fix it.
+    # The CUDA 12 DLLs come from pip (nvidia-cublas-cu12, nvidia-cudnn-cu12) into
+    # site-packages/nvidia/<name>/bin; Blade must put those folders on the DLL path.
+    import sys
+    import types
+    from blade_editor import captions
+    for name, sub, f in (("cublas", "bin", "cublas64_12.dll"), ("cudnn", "bin", "cudnn64_9.dll"),
+                         ("cublas", "lib", "libcublas.so.12")):
+        (tmp_path / "site" / "nvidia" / name / sub).mkdir(parents=True, exist_ok=True)
+        (tmp_path / "site" / "nvidia" / name / sub / f).write_bytes(b"")
+    monkeypatch.syspath_prepend(str(tmp_path / "site"))
+    monkeypatch.delitem(sys.modules, "nvidia", raising=False)
+    win = captions._cuda_lib_dirs(windows=True)
+    assert [Path(d).parts[-2:] for d in win] == [("cublas", "bin"), ("cudnn", "bin")]
+    assert [Path(d).parts[-2:] for d in captions._cuda_lib_dirs(windows=False)] == [("cublas", "lib")]
+
+    class M:
+        def __init__(self, model, device, compute_type):
+            self.device = device
+
+        def transcribe(self, samples, **kw):
+            if self.device != "cpu":
+                raise RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
+            return [], types.SimpleNamespace(language="fa", duration=1.0)
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=M))
+    monkeypatch.setattr(captions, "_load_cuda_libs", lambda: [])
+    _ff("-f", "lavfi", "-i", "sine=f=300:d=1", str(tmp_path / "a.wav"))
+    r = captions.transcribe(str(tmp_path / "a.wav"), language="fa", model="large-v3-turbo", device="auto")
+    assert r["device"].startswith("cpu (GPU failed")
+    assert "nvidia-cublas-cu12" in r["gpu_fix"] and "nvidia-cudnn-cu12" in r["gpu_fix"]

@@ -106,4 +106,13 @@ Optional, for Google Flow clips: in Chrome open `chrome://extensions`, turn on *
 click **Load unpacked** and choose the folder `.blade-editor/chrome-extension` in your home folder
 (Windows: `C:\Users\<you>\.blade-editor\chrome-extension`). You do this only once.
 
+Optional, NVIDIA graphics card for fast captions: when the installer finds an NVIDIA card, it installs the
+CUDA 12 libraries itself (about 1 GB). If Blade says "GPU failed" or "cublas64_12.dll is not found", run this in
+the terminal (Windows) and then open Claude again:
+```
+%USERPROFILE%\.blade-editor\venv\Scripts\python.exe -m pip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12>=9,<10"
+```
+(In PowerShell, write `$HOME` instead of `%USERPROFILE%`.) The graphics driver must also support CUDA 12.
+Without this, captions are made on the CPU: correct, but slower.
+
 Installation is complete. You never need to do Part 1 again.

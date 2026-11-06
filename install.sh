@@ -24,7 +24,12 @@ echo "OK: ffmpeg found"
 say "Installing Blade Editor into its own folder (~/.blade-editor/venv)"
 "$PY" -m venv "$HOME/.blade-editor/venv"
 "$HOME/.blade-editor/venv/bin/python" -m pip install -q --upgrade pip
-"$HOME/.blade-editor/venv/bin/python" -m pip install -q ".[captions,subject]"
+EXTRAS="captions,subject"
+if command -v nvidia-smi >/dev/null; then
+  EXTRAS="$EXTRAS,gpu"  # NVIDIA GPU: CUDA 12 libraries for fast captions
+  echo "NVIDIA GPU found: installing its CUDA 12 libraries for captions (about 1 GB)"
+fi
+"$HOME/.blade-editor/venv/bin/python" -m pip install -q ".[$EXTRAS]"
 SPY="$HOME/.blade-editor/venv/bin/python"
 "$SPY" -c "import blade_editor.server" && echo "OK: Blade Editor installed"
 

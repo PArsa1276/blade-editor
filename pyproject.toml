@@ -13,6 +13,8 @@ dependencies = ["mcp>=2,<3", "numpy>=1.24", "pillow>=10", "websockets>=14"]
 
 [project.optional-dependencies]
 captions = ["faster-whisper>=1.1"]
+# NVIDIA GPU for captions: CUDA 12 cuBLAS + cuDNN 9 for CTranslate2 (no separate CUDA install).
+gpu = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"]
 subject = ["onnxruntime>=1.17"]
 flow = ["playwright>=1.40"]
 test = ["pytest>=8"]
