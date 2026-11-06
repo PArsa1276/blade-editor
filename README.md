@@ -73,7 +73,7 @@ Complete beginners: follow [INSTALL.md](INSTALL.md) (English) or [INSTALL_FA.md]
 | `view_frames` | Contact sheet of frames with time stamps, returned as an image, so the agent really sees the footage |
 | `analyze_video` | Cuts, shots, camera moves (pan/tilt/handheld), shake, flashes, activity per second |
 | `analyze_music` | BPM, beats, downbeats, strong hits, loudness per second |
-| `style_from_reference` | Turns a reference edit into a style: its pattern of shot lengths in beats, zoom punch, flashes per second (on cuts or inside shots), shake rate, colour grade |
+| `style_from_reference` | Turns a reference edit into a style: its pattern of shot lengths in beats, zoom punch, flashes per second (on cuts or inside shots), share of moving-camera time, shake rate, colour grade |
 | `reference_breakdown` | The recipe of a reference edit shot by shot, in few tokens: length, cut on beat, flashes, camera moves with ready keyframes, and which tool rebuilds each part |
 | `extract_motion` | The camera move of one shot - movement, **rotation** and **zoom** - as keyframes you can replay on any clip (sway, whip, spin, zoom pulse) |
 | `verify_cuts` | Before/after frames of each cut in one image, for a single quick check (no endless re-analysis) |

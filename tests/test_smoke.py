@@ -630,3 +630,25 @@ def test_reference_style_repeats_shot_pattern_and_flashes_inside_shots(media, tm
     for start, at in flashes:
         assert at >= 0.1, "inside the shot, not on the cut"
         assert abs((start + at) / 0.5 - round((start + at) / 0.5)) < 0.1, "on a beat"
+
+
+def test_shots_follow_the_reference_moving_camera_share(media, tmp_path):
+    # A slow pan (1.6 px per frame in a 640 px source) rounds to 0 px in the full frame at 160 px,
+    # but a 9:16 crop magnifies it 2.4x: the output sees a moving camera.
+    _ff("-f", "lavfi", "-i", "mandelbrot=s=1280x480,trim=duration=0.04", "-frames:v", "1", str(tmp_path / "big.png"))
+    _ff("-loop", "1", "-i", str(tmp_path / "big.png"), "-vf", "crop=640:480:x='t*48':y=0,format=yuv420p",
+        "-t", "8", "-r", "30", "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "pan.mp4"))
+    _ff("-loop", "1", "-i", str(tmp_path / "big.png"), "-vf", "crop=640:480:x=300:y=0,format=yuv420p",
+        "-t", "8", "-r", "30", "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "still.mp4"))
+    full = analyze.analyze_video(str(tmp_path / "pan.mp4"), include_audio=False)["summary"]["moving_camera_share"]
+    crop = analyze.output_camera_moving(str(tmp_path / "pan.mp4"), 540, 960)[0].mean()
+    assert full < 0.5 < crop, (full, crop)
+    srcs = [str(tmp_path / "pan.mp4"), str(tmp_path / "still.mp4")]
+    base = {"cut_every": 2, "punch": 0, "flash": 0, "shake": 0, "glitch": 0, "grade": None, "transition": "cut"}
+    # Without a target the two sources alternate (3 of 6); a target moves the majority its way.
+    # (Variety rules - no source twice in a row, a cost per reuse - keep it from being 6 of 6.)
+    for target, want in ((0.0, "still"), (1.0, "pan")):
+        edl = autoedit.build_edl(srcs, str(media / "beat.wav"), str(tmp_path / "c.mp4"),
+                                 {**base, "camera_moving": target}, duration=6, width=540, height=960)
+        picked = [c["src"] for c in edl["clips"]]
+        assert sum(want in p for p in picked) > len(picked) / 2, (target, picked)

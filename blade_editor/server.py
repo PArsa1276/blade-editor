@@ -372,7 +372,8 @@ def style_from_reference(reference_path: str, project: str | None = None) -> dic
     """Measure a reference edit and turn it into a style (cut rhythm in beats, zoom punch, flash
     and shake rates, colour grade, transition type) for auto_edit. Copies the edit *language*,
     not the footage. 'pattern' is the reference's shot lengths in beats (auto_edit repeats it on
-    the new music); 'flash_rate'/'flash_on_cut' place the same number of flashes on beats."""
+    the new music); 'flash_rate'/'flash_on_cut' place the same number of flashes on beats;
+    'camera_moving' makes auto_edit pick shots whose camera moves about as often as the reference's."""
     r = autoedit.style_from_reference(_abs(reference_path))
     saved = _save(_project(project), f"style_{Path(reference_path).stem}", r)
     return {"style": r["style"], "reference_summary": r["reference_analysis"]["summary"],
