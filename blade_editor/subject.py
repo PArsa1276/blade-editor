@@ -74,7 +74,7 @@ def mask_video(src: str, out: str, W: int, H: int, fps: int, windows: list[tuple
     """Write a grey mask video (white = subject) the length of `src`. Only frames inside `windows`
     [(start, end), ...] are analysed (others are black); None = every frame."""
     probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src],
-                           capture_output=True, text=True).stdout.strip()
+                           capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
     n = int(round(float(probe or 0) * fps))
     aw = min(analysis_width, W) // 2 * 2
     ah = int(round(H * aw / W)) // 2 * 2
@@ -122,7 +122,7 @@ def cutout(src: str, out: str, background: str = "transparent", model: str = "u2
                     "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", piece], check=True)
     info = json.loads(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                                       "stream=width,height,r_frame_rate", "-of", "json", piece],
-                                     capture_output=True, text=True).stdout)["streams"][0]
+                                     capture_output=True, text=True, encoding="utf-8", errors="replace").stdout)["streams"][0]
     W, H = int(info["width"]), int(info["height"])
     a, b = info["r_frame_rate"].split("/")
     fps = max(1, round(int(a) / int(b or 1)))

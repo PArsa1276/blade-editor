@@ -34,7 +34,7 @@ def check(path: str) -> dict:
         issues.append(f"Audio peak is {tp} dBFS. It can clip.")
     lens = {}
     out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,duration",
-                          "-of", "csv=p=0", path], capture_output=True, text=True).stdout
+                          "-of", "csv=p=0", path], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     for line in out.splitlines():
         # Rotated phone videos add side-data fields after the duration: "video,7.95,".
         kind, d = (line.split(",") + [""])[:2]

@@ -22,10 +22,14 @@ def _bin(name: str) -> str:
     return path
 
 
+# ffmpeg/ffprobe print UTF-8 (file names, Persian metadata). Without encoding="utf-8", Windows
+# decodes with its code page: a Persian title tag then made ffprobe's output None.
+
+
 def run(args: list[str], timeout: float | None = None) -> str:
     """Run ffmpeg with the given arguments. Raise FFError with the stderr tail on failure."""
     cmd = [_bin("ffmpeg"), "-hide_banner", "-nostdin", "-y", *args]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.strip().splitlines()[-25:])
         raise FFError(f"ffmpeg failed (code {proc.returncode}):\n{tail}")
@@ -41,7 +45,7 @@ def probe(path: str | Path) -> dict:
         _bin("ffprobe"), "-v", "error", "-print_format", "json",
         "-show_format", "-show_streams", str(path),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if proc.returncode != 0:
         raise FFError(f"ffprobe failed: {proc.stderr.strip()}")
     data = json.loads(proc.stdout)

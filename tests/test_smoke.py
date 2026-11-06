@@ -678,3 +678,21 @@ def test_reference_colour_is_matched_per_shot(media, tmp_path):
     with pytest.raises(ValueError):
         from blade_editor import effects
         effects.grade({"exposure": 1})
+
+
+def test_probe_reads_persian_metadata_with_a_windows_locale(tmp_path, monkeypatch):
+    # Windows: text=True decodes ffprobe's UTF-8 output with the locale code page. A Persian
+    # title tag then failed (stdout None -> "the JSON object must be str ... not NoneType").
+    out = tmp_path / "تست.mp4"
+    _ff("-f", "lavfi", "-i", "testsrc2=s=160x90:r=10:d=1", "-metadata", "title=افزایش سرعت تدوین",
+        "-metadata", "comment=پک خام", "-c:v", "libx264", "-preset", "ultrafast", str(out))
+    real = subprocess.Popen.__init__
+
+    def windows_default(self, *a, **k):  # what text=True does on a Windows machine with code page 1252
+        if (k.get("text") or k.get("universal_newlines")) and not k.get("encoding"):
+            k["encoding"] = "cp1252"
+        real(self, *a, **k)
+
+    monkeypatch.setattr(subprocess.Popen, "__init__", windows_default)
+    info = ff.probe(out)
+    assert info["video"]["width"] == 160 and info["duration"] > 0.5
