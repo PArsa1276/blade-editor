@@ -621,7 +621,8 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
     speech_models): a name (large-v3-turbo, large-v3, medium, small), an OpenAI Whisper .pt file
     (e.g. .../large-v3.pt) or a faster-whisper folder; empty = the saved choice or large-v3-turbo.
     remember=true saves `model` as the default. device: auto (falls back to the CPU when the GPU's
-    CUDA libraries are missing), cpu or cuda."""
+    CUDA libraries are missing), cpu or cuda. If the result has 'gpu_fix', tell the user: the GPU
+    failed and the CPU was used; that text is the one install command that makes the GPU work."""
     r = captions.transcribe(_abs(path), language, model, device, prompt)
     if remember and model:
         captions.save_model(model)
