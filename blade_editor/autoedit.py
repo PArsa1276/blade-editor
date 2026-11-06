@@ -95,15 +95,21 @@ def style_from_reference(ref_path: str) -> dict:
         "glitch": 0.0,
         "grade": _guess_grade(color_profile(ref_path)),
         "transition": "cut" if msl < 2.5 else "fade",
-        "slow_zoom": s["moving_camera_share"] > 0.3,
+        # auto_edit picks shots so the output's moving-camera share comes close to this. A slow
+        # zoom on every shot would add movement on top (measured: +0.1 to +0.36), so it is off.
+        "slow_zoom": False,
+        "camera_moving": s["moving_camera_share"],
         "source": {"reference": ref_path, "bpm": bpm, "median_shot_length": msl,
                    "cuts_on_beat_share": s.get("cuts_on_beat_share")},
     }
     return {"style": style, "reference_analysis": a}
 
 
-def _score_windows(src_analysis: dict, length: float) -> list[tuple[float, float]]:
-    """(start, score) for candidate windows that do not cross a cut in the source."""
+def _score_windows(src_analysis: dict, length: float,
+                   moving: tuple[np.ndarray, float] | None = None) -> list[tuple[float, float, float]]:
+    """(start, score, moving) for candidate windows that do not cross a cut in the source.
+    moving: share of the window's frames whose camera moves in the OUTPUT crop
+    (analyze.output_camera_moving), or 0 when it was not measured."""
     per = src_analysis["per_second"]
     dur = src_analysis["file"]["duration"]
     shots = src_analysis["shots"]
@@ -118,10 +124,15 @@ def _score_windows(src_analysis: dict, length: float) -> list[tuple[float, float
             cam = float(np.mean([p["camera_speed"] for p in secs]))
             bright = float(np.mean([p["brightness"] for p in secs]))
             penalty = 4.0 if bright < 25 or bright > 235 else 0.0
-            out.append((round(t, 3), act + 0.5 * cam - penalty))
+            mv = 0.0
+            if moving is not None:
+                fr, mfps = moving
+                part = fr[int(t * mfps): int((t + length) * mfps)]
+                mv = float(part.mean()) if len(part) else 0.0
+            out.append((round(t, 3), act + 0.5 * cam - penalty, mv))
             t += max(0.25, length / 2)
     if not out and dur >= length:
-        out.append((max(0.0, (dur - length) / 2), 0.0))
+        out.append((max(0.0, (dur - length) / 2), 0.0, 0.0))
     return out
 
 
@@ -229,6 +240,13 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
     # per frame and real source cuts were missed, so shots crossed a cut inside the source.
     analyses = {s: analyze.analyze_video(s, max_fps=30, include_audio=False) for s in sources}
     used: dict[str, list[tuple[float, float]]] = {s: [] for s in sources}
+    # A reference's share of moving-camera time. The crop to the output frame magnifies the
+    # source (a 640x480 source in a 9:16 frame: 2.4x), so a slow drift reads as a moving camera:
+    # measure each source in the output's own crop.
+    cam_target = style.get("camera_moving")
+    motion = ({s: analyze.output_camera_moving(s, width, height) for s in sources}
+              if cam_target is not None else {})
+    moved = filled = 0.0
     clips = []
     order = list(sources)
     prev_src = None
@@ -247,22 +265,28 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
         best = None
         cands = [src] if src else order
         for s in cands:
-            wins = _score_windows(analyses[s], need)
+            wins = _score_windows(analyses[s], need, motion.get(s))
             if not wins:
                 continue
             # Rank windows inside each source (0..1) so sources compete fairly.
             raw = np.array([w[1] for w in wins])
             ranks = raw.argsort().argsort() / max(1, len(raw) - 1)
-            for (t, _), r in zip(wins, ranks):
+            want = None
+            if cam_target is not None:  # the moving share this shot should have to reach the target
+                want = float(np.clip((cam_target * (filled + need) - moved) / need, 0.0, 1.0))
+            for (t, _, mv), r in zip(wins, ranks):
                 overlap = any(t < ue and t + need > us for us, ue in used[s])
                 score = (r - (5 if overlap else 0) - 0.35 * len(used[s])
                          - (0.5 if s == prev_src and len(order) > 1 else 0)
-                         + float(rng.normal(0, 0.15)))
+                         + float(rng.normal(0, 0.15))
+                         - (1.5 * abs(mv - want) if want is not None else 0.0))
                 if best is None or score > best[2]:
-                    best = (s, t, score)
+                    best = (s, t, score, mv)
         if best is None:
             raise ValueError(f"No source is long enough for a {need:.2f}s shot.")
-        s, t, _ = best
+        s, t, _, mv = best
+        moved += mv * need
+        filled += need
         prev_src = s
         used[s].append((t, t + need))
         fx = []
@@ -291,6 +315,11 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
         clips.append(clip)
         starts.append((a, length))
 
+    if cam_target is not None and filled and moved / filled > cam_target + 0.15:
+        warnings.append(f"The footage moves more than the reference: about {moved / filled:.0%} of the time the "
+                        f"camera moves in this crop, the reference {cam_target:.0%}. Shots were picked as still "
+                        f"as possible. For handheld shots, 'stabilize': true on a clip can help; or ask for "
+                        f"steadier footage.")
     if style.get("flash_rate") and not ramp:
         _place_flashes(clips, starts, beats, style, total)
 

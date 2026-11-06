@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,29 @@ def _phase_shift(a: np.ndarray, b: np.ndarray, win: np.ndarray) -> tuple[float, 
     dx = peak[1] if peak[1] <= w // 2 else peak[1] - w
     conf = float(corr.max() / (corr.mean() + 1e-9))
     return -float(dx), -float(dy), conf
+
+
+def output_camera_moving(path: str, width: int, height: int, fps: float = 30.0) -> tuple[np.ndarray, float]:
+    """Per frame: does the camera move as analyze_video would measure it in a 'cover' crop of the
+    source to width x height? (speed > 0.6 px at 160 px wide, like moving_camera_share).
+    The crop magnifies the source, so a slow drift that rounds to 0 px in the full frame can be
+    1 px per frame in the output: measure in the output's own crop and size."""
+    sw = 160
+    sh = max(2, int(round(sw * height / width / 2)) * 2)
+    info = ff.probe(path)
+    use = min(fps, (info.get("video") or {}).get("fps") or fps)
+    vf = (f"fps={use},scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
+          f"scale={sw}:{sh}:flags=area,format=gray")
+    proc = subprocess.run([ff._bin("ffmpeg"), "-hide_banner", "-nostdin", "-v", "error", "-i", str(path),
+                           "-vf", vf, "-f", "rawvideo", "-"], capture_output=True)
+    n = len(proc.stdout) // (sw * sh)
+    f = np.frombuffer(proc.stdout[: n * sw * sh], dtype=np.uint8).reshape(n, sh, sw).astype(np.float32)
+    win = np.outer(np.hanning(sh), np.hanning(sw)).astype(np.float32)
+    moving = np.zeros(n, dtype=bool)
+    for i in range(1, n):
+        dx, dy, conf = _phase_shift(f[i - 1], f[i], win)
+        moving[i] = conf > 8 and float(np.hypot(dx, dy)) > 0.6
+    return moving, use
 
 
 def _peaks(x: np.ndarray, thr: np.ndarray | float, min_gap: int) -> list[int]:
