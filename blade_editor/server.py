@@ -15,7 +15,7 @@ from typing import Any
 from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, prompts, qa, recipes, render, sfx, shorts, text
+from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, prompts, qa, recipes, remake, render, sfx, shorts, text
 
 HOME = Path(os.environ.get("BLADE_HOME", Path.home() / "blade_projects")).expanduser()
 
@@ -39,7 +39,8 @@ effect with the breakdown's keys (or `camera_preset`); 3D turns, designed titles
 `motion_graphic` (Kinetograph); hook titles, name tags, numbers, CTAs -> `motion_template`
 (transparent overlay; rules in the blade-motion skill); missing shots -> Google Flow: keyframe images first (`flow_generate_image`, same references for every
 shot), then video from them (`first_frame`/`last_frame`, prompt with `video_prompt`); ask before
-spending credits);
+spending credits); NO footage at all ("make one like this reference") -> `remake_plan` (fewest
+Flow clips, measured camera per shot) -> Flow -> `remake_assemble`;
 beats -> clip in/out on beats or `auto_edit`. Tell the user briefly what will match exactly,
 approximately, or not at all - then make ONE complete, standard edit (no half versions).
 
@@ -727,6 +728,44 @@ def flow_setup(port: int = 0) -> dict:
 async def flow_status(port: int = 0) -> list:
     """Check the connection to the Flow tab in your Chrome and show a screenshot of it."""
     return _with_shot(await flow.status(port))
+
+
+@mcp.tool()
+def remake_plan(reference: str, aspect: str | None = None, model: str = "omni-1.1-flash",
+                multi_shot: bool = True, project: str | None = None) -> dict:
+    """Plan a NEW video in the style of a reference when the user has no footage: Google Flow makes
+    the shots. Measures the reference (cuts, crossfades, camera move per shot, same-scene groups)
+    and groups the shots into the fewest Flow clips ("units"): same-scene shots and short montage
+    shots share one clip ("Cut to:"), each shot made >= 1.5 s so its middle can be used; frozen
+    shots need no video. For each unit: `look_at` (call it and SEE the reference shots), `beats`
+    with the measured `camera` - fill subject/action/setting/lighting with the USER'S content
+    (never copy people, logos or brands of the reference), then video_prompt(beats, takes=unit
+    takes, duration=generate_s) -> flow_generate_video (dry run first). Then remake_assemble."""
+    p = remake.plan(_abs(reference), _project(project) / "remake_work", model, aspect, multi_shot)
+    p["saved_plan"] = _save(_project(project), f"remake_plan_{Path(reference).stem}", p)
+    p["next"] = ("1) per unit: look_at, write beats, video_prompt, flow_generate_video (continuity: first_frame); "
+                 "'still' units: one image; 2) remake_assemble(saved_plan, {unit id: clip path}, output_path, music)")
+    return p
+
+
+@mcp.tool()
+def remake_assemble(plan_path: str, clips: dict[str, str], output_path: str, music: str | None = None,
+                    preview: bool = True, project: str | None = None) -> dict:
+    """Put the generated Flow clips on the reference's timeline: every shot is cut from its own
+    segment of its unit's clip (the real cuts in the clip are measured - video models do not cut
+    exactly when asked) and keeps the reference's shot length. clips: {"G1": "path.mp4", ...}
+    ("G3.1", "G3.2" for a long shot in several clips; the image path for 'still' units).
+    Renders a preview by default; check it with view_frames, then render_edl the saved EDL."""
+    p = json.loads(Path(_abs(plan_path)).read_text(encoding="utf-8"))
+    res = remake.assemble(p, {k: _abs(v) for k, v in clips.items()}, str(Path(output_path).expanduser().resolve()),
+                          _abs(music) if music else None)
+    res["edl_path"] = _save(_project(project), "edl_remake", res["edl"])
+    res["result"] = render.render(json.loads(json.dumps(res["edl"])), _project(project) / "work", preview=preview)
+    off = [u for u in res["units"] if u["used"] != "measured"]
+    if off:
+        res["check"] = (f"{len(off)} clip(s) did not cut as planned ({[u['unit'] for u in off]}): the planned times "
+                        "were used - look at those shots with view_frames; regenerate or move 'in' if wrong")
+    return res
 
 
 @mcp.tool()

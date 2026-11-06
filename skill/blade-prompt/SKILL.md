@@ -107,6 +107,30 @@ model to start/end exactly on them. A frame can be an image or `"clip.mp4@12.5"`
 With frames, write the prompt about the MOTION and camera between the frames (they already fix
 the look). In the dry run check `frames_visible` and the screenshot before asking to spend.
 
+## Remake a reference without footage
+
+The user has a reference video and no footage ("I want one like this"). Ideas from rea-video
+(Apache-2.0), built on Blade's measurements:
+1. `remake_plan(reference, aspect)`. It measures cuts, crossfades and the camera move of every
+   shot, and groups the shots into the fewest Flow clips ("units"): same-scene shots, and short
+   montage shots (< 2 s, "Cut to:"), share one clip; each shot is made >= 1.5 s (the middle is
+   used); frozen shots are one still image (no credits). Tell the user: N shots -> M Flow clips.
+2. For each unit: call its `look_at` and SEE the reference shots. Decide what each shot is
+   (filmed / AI video / 3D / graphic or text / screen / still):
+   - graphic, text, UI, charts -> `motion_template` / `motion_graphic`, not Flow (exact text);
+   - filmed, AI, 3D -> Flow. Write each beat's subject, action, setting, lighting with the
+     USER'S topic, keep the measured `camera` words. Never copy the reference's people, faces,
+     logos, brands or characters - copy the rhythm, framing and camera, not the content.
+3. Recurring person/product: one reference image first (`flow_generate_image`), the same
+   `references` in every unit. `continuity` in a unit: its first_frame is the previous clip's
+   last frame (`"<clip>@<its length>"`).
+4. `video_prompt(beats, style, duration=generate_s, aspect, takes=<unit takes>)` ->
+   `flow_generate_video` (dry run, then ask before spending; one unit = one call).
+5. `remake_assemble(saved_plan, {"G1": clip, ...}, output, music)`: it finds the real cuts in each
+   clip and cuts every shot from its own segment at the reference's exact length. Units in
+   `check` did not cut as planned: look at them; regenerate only those.
+Music: the user's own (or ask); the reference's music is usually not theirs to reuse.
+
 ## 3. Show, then spend
 
 Show the user the brief or the Flow prompt (short), then do one dry run of Flow
