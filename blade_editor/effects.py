@@ -158,9 +158,22 @@ def look_chain(effects: list[dict], width: int, height: int, span: float) -> lis
     return out
 
 
-def grade(name: str | None) -> list[str]:
+def grade(name: str | dict | None) -> list[str]:
     if not name:
         return []
+    if isinstance(name, dict):  # a measured colour match: {brightness, contrast, saturation, warmth}
+        bad = set(name) - {"brightness", "contrast", "saturation", "warmth"}
+        if bad:
+            raise ValueError(f"Unknown grade keys {sorted(bad)}. Use brightness, contrast, saturation, warmth.")
+        b = max(-0.3, min(0.3, float(name.get("brightness", 0.0))))
+        c = max(0.5, min(2.0, float(name.get("contrast", 1.0))))
+        sat = max(0.0, min(3.0, float(name.get("saturation", 1.0))))
+        w = max(-0.3, min(0.3, float(name.get("warmth", 0.0))))
+        out = [f"eq=contrast={c:.3f}:brightness={b:.3f}:saturation={sat:.3f}"]
+        if abs(w) >= 0.005:  # warmth = mean(R - B): move red and blue half each, in 0..255 steps
+            d = w * 255 / 2
+            out.append(f"lutrgb=r='clip(val+{d:.1f},0,255)':b='clip(val-{d:.1f},0,255)'")
+        return out
     if name.lower().endswith(".cube"):
         return [f"lut3d=file='{name.replace(chr(92), '/').replace(':', chr(92) + ':')}'"]
     if name not in GRADES:
