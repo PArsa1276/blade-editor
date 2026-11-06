@@ -175,7 +175,7 @@ def capabilities() -> dict:
             "clips[]": "{src (video, image, or 'color:#RRGGBB'), in, out | duration, speed=1, "
                        "ramp=[[source_seconds, speed], ...] (speed ramp, replaces out/speed), slowmo=auto|flow|blend|none (slowed parts: flow = optical-flow in-between frames, real smooth slow motion, slower render; auto = flow in the final render for speed <= 0.75, blend in previews), stabilize=false, reverse=false, "
                        "fit, focus=[x,y] (0..1 crop centre for cover) or 'auto' (follows motion), mute, volume, "
-                       "grade (name or path to a .cube LUT), effects[], "
+                       "grade (name, path to a .cube LUT, or {brightness, contrast, saturation, warmth}), effects[], "
                        "transition: 'cut' | 'flash' | 'zoom' | 'glitch' | 'whip' | any ffmpeg xfade name, "
                        "or {type, dur}}",
             "texts[]": "{text (emoji become colour stickers above the text), start, end, style, pos ('top','upper','center','lower','bottom','top_left',...) "
@@ -373,7 +373,8 @@ def style_from_reference(reference_path: str, project: str | None = None) -> dic
     and shake rates, colour grade, transition type) for auto_edit. Copies the edit *language*,
     not the footage. 'pattern' is the reference's shot lengths in beats (auto_edit repeats it on
     the new music); 'flash_rate'/'flash_on_cut' place the same number of flashes on beats;
-    'camera_moving' makes auto_edit pick shots whose camera moves about as often as the reference's."""
+    'camera_moving' makes auto_edit pick shots whose camera moves about as often as the reference's;
+    'color' (the reference's measured colour) gives each shot its own grade toward it."""
     r = autoedit.style_from_reference(_abs(reference_path))
     saved = _save(_project(project), f"style_{Path(reference_path).stem}", r)
     return {"style": r["style"], "reference_summary": r["reference_analysis"]["summary"],

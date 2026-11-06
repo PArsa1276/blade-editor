@@ -652,3 +652,29 @@ def test_shots_follow_the_reference_moving_camera_share(media, tmp_path):
                                  {**base, "camera_moving": target}, duration=6, width=540, height=960)
         picked = [c["src"] for c in edl["clips"]]
         assert sum(want in p for p in picked) > len(picked) / 2, (target, picked)
+
+
+def test_reference_colour_is_matched_per_shot(media, tmp_path):
+    # A bright, low-contrast source and a dark, contrasty reference colour: each shot gets its own
+    # measured grade that moves it toward the reference, inside the safe limits.
+    _ff("-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=6", "-vf", "eq=brightness=0.25:contrast=0.6,format=yuv420p",
+        "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "bright.mp4"))
+    # source in the 9:16 crop: saturation 0.71, warmth 0.14, brightness 0.71, contrast 0.22
+    target = {"saturation": 0.4, "warmth": 0.0, "brightness": 0.3, "contrast": 0.4}
+    style = {"cut_every": 2, "punch": 0, "flash": 0, "shake": 0, "glitch": 0, "grade": "teal_orange",
+             "transition": "cut", "color": target}
+    out = tmp_path / "graded.mp4"
+    edl = autoedit.build_edl([str(tmp_path / "bright.mp4")], str(media / "beat.wav"), str(out), style,
+                             duration=4, width=360, height=640)
+    assert all(isinstance(c.get("grade"), dict) for c in edl["clips"])
+    g = edl["clips"][0]["grade"]
+    assert -0.15 <= g["brightness"] < 0 and 1.0 < g["contrast"] <= 1.35 and 0.6 <= g["saturation"] < 1, g
+    edl.pop("_meta")
+    render.render(edl, tmp_path / "work")
+    before = autoedit.color_profile(str(tmp_path / "bright.mp4"), size=(360, 640))
+    after = autoedit.color_profile(str(out))
+    for k in ("saturation", "brightness", "contrast"):
+        assert abs(after[k] - target[k]) < abs(before[k] - target[k]), (k, before, after)
+    with pytest.raises(ValueError):
+        from blade_editor import effects
+        effects.grade({"exposure": 1})

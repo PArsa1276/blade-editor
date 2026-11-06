@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import analyze, audio, ff
+from . import analyze, audio, effects, ff
 
 PRESETS = {
     # cut_every: beats per shot; punch/flash/shake: probability on an accented cut.
@@ -25,15 +25,25 @@ PRESETS = {
 }
 
 
-def color_profile(path: str, samples: int = 12) -> dict:
-    """Mean saturation, warmth (R-B), brightness and contrast over a few frames."""
-    info = ff.probe(path)
-    dur = info["duration"] or 1.0
+def color_profile(path: str, samples: int = 12, start: float = 0.0, dur: float | None = None,
+                  size: tuple[int, int] | None = None, vf: str | None = None) -> dict:
+    """Mean saturation, warmth (R-B), brightness and contrast over a few frames.
+    start/dur: only that part; size: as a 'cover' crop to (width, height) shows it; vf: a filter
+    applied before measuring (to check a grade)."""
+    if dur is None:
+        dur = (ff.probe(path)["duration"] or 1.0) - start
+    chain = []
+    if size:
+        w, h = size
+        chain.append(f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}")
+    if vf:
+        chain.append(vf)
+    chain.append("scale=64:-2")
     vals = []
     for i in range(samples):
-        t = dur * (i + 0.5) / samples
+        t = start + dur * (i + 0.5) / samples
         cmd = ["ffmpeg", "-v", "error", "-ss", f"{t:.3f}", "-i", path, "-frames:v", "1",
-               "-vf", "scale=64:-2", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+               "-vf", ",".join(chain), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
         raw = subprocess.run(cmd, capture_output=True).stdout
         if not raw:
             continue
@@ -47,6 +57,32 @@ def color_profile(path: str, samples: int = 12) -> dict:
     s, w, b, c = np.mean(vals, axis=0)
     return {"saturation": round(float(s), 3), "warmth": round(float(w), 3),
             "brightness": round(float(b), 3), "contrast": round(float(c), 3)}
+
+
+MATCH = 0.7  # move each shot this far toward the reference colour (not all the way: content differs)
+
+
+def _match_grade(src: str, t0: float, dur: float, size: tuple[int, int], target: dict) -> dict | None:
+    """A per-shot grade that moves the shot's measured colour toward the reference's.
+    Limits keep it safe: brightness +-0.15, contrast 0.75-1.35, saturation 0.6-1.6, warmth +-0.10.
+    One check: the grade is applied to the same frames and measured again, then corrected once."""
+    p = color_profile(src, samples=3, start=t0, dur=dur, size=size)
+    if not p or not target:
+        return None
+    want = {k: p[k] + MATCH * (target[k] - p[k]) for k in ("saturation", "warmth", "brightness", "contrast")}
+    g = {"contrast": 1.0, "brightness": 0.0, "saturation": 1.0, "warmth": 0.0}
+    lim = {"contrast": (0.75, 1.35), "brightness": (-0.15, 0.15), "saturation": (0.6, 1.6), "warmth": (-0.10, 0.10)}
+    cur = p
+    for _ in range(2):
+        g["contrast"] *= want["contrast"] / max(0.02, cur["contrast"])
+        g["saturation"] *= want["saturation"] / max(0.02, cur["saturation"])
+        g["brightness"] += want["brightness"] - cur["brightness"]
+        g["warmth"] += want["warmth"] - cur["warmth"]
+        g = {k: float(np.clip(v, *lim[k])) for k, v in g.items()}
+        cur = color_profile(src, samples=3, start=t0, dur=dur, size=size, vf=",".join(effects.grade(g)))
+        if not cur:
+            break
+    return {k: round(v, 3) for k, v in g.items()}
 
 
 def _guess_grade(cp: dict) -> str:
@@ -74,6 +110,7 @@ def style_from_reference(ref_path: str) -> dict:
     """Turn a reference video's measured edit language into a style for auto_edit."""
     a = analyze.analyze_video(ref_path)
     s = a["summary"]
+    cp = color_profile(ref_path)
     bpm = (a.get("audio") or {}).get("bpm") or 120.0
     beat = 60.0 / bpm
     msl = s["median_shot_length"] or 1.0
@@ -93,7 +130,9 @@ def style_from_reference(ref_path: str) -> dict:
                                   if any(abs(f - c) < 0.1 for c in a["cuts"])) / max(1, len(a["flashes"])), 2),
         "shake": round(min(0.8, s["shake_share"] * 4), 2),
         "glitch": 0.0,
-        "grade": _guess_grade(color_profile(ref_path)),
+        "grade": _guess_grade(cp),
+        # auto_edit grades each shot toward this measured colour (the named grade is the fallback).
+        "color": cp,
         "transition": "cut" if msl < 2.5 else "fade",
         # auto_edit picks shots so the output's moving-camera share comes close to this. A slow
         # zoom on every shot would add movement on top (measured: +0.1 to +0.36), so it is off.
@@ -320,6 +359,11 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
                         f"camera moves in this crop, the reference {cam_target:.0%}. Shots were picked as still "
                         f"as possible. For handheld shots, 'stabilize': true on a clip can help; or ask for "
                         f"steadier footage.")
+    if style.get("color"):  # match each shot's colour to the reference (instead of one named grade)
+        for c in clips:
+            g = _match_grade(c["src"], c["in"], c["out"] - c["in"], (width, height), style["color"])
+            if g:
+                c["grade"] = g
     if style.get("flash_rate") and not ramp:
         _place_flashes(clips, starts, beats, style, total)
 
