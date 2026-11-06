@@ -611,3 +611,22 @@ def test_remake_plan_groups_shots_and_measures_the_camera(media, tmp_path):
         assert u["kind"] in ("generate", "still")
         if u["kind"] == "generate":
             assert 3 <= u["generate_s"] <= 10 and u["beats"][-1]["t1"] == u["generate_s"]
+
+
+def test_reference_style_repeats_shot_pattern_and_flashes_inside_shots(media, tmp_path):
+    # A reference with short and long shots (1 and 3 beats) and flashes on beats INSIDE shots.
+    assert autoedit._beat_pattern([0.5, 2.0, 2.5], 4.0, 0.5) == [1, 3, 1, 3]
+    style = {"cut_every": 2, "punch": 0, "flash": 0.8, "shake": 0, "glitch": 0, "grade": None,
+             "transition": "cut", "pattern": [1, 3], "flash_rate": 0.5, "flash_on_cut": 0.0}
+    edl = autoedit.build_edl([str(media / "src.mp4")], str(media / "beat.wav"), str(tmp_path / "p.mp4"),
+                             style, duration=6, width=360, height=640)
+    lens = [round((c["out"] - c["in"]) / 0.5) for c in edl["clips"]]
+    assert lens[:4] in ([1, 3, 1, 3], [3, 1, 3, 1]), lens  # the grid may start on the first beat
+    t, flashes = 0.0, []
+    for c in edl["clips"]:
+        flashes += [(t, f["at"]) for f in c["effects"] if f["type"] == "flash"]
+        t += c["out"] - c["in"]
+    assert len(flashes) == 3
+    for start, at in flashes:
+        assert at >= 0.1, "inside the shot, not on the cut"
+        assert abs((start + at) / 0.5 - round((start + at) / 0.5)) < 0.1, "on a beat"
