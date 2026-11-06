@@ -65,6 +65,11 @@ def _guess_grade(cp: dict) -> str:
     return "teal_orange"
 
 
+def _beat_pattern(cuts: list[float], dur: float, beat: float) -> list[int]:
+    bounds = [0.0, *cuts, dur]
+    return [int(max(1, min(16, round((b - a) / beat)))) for a, b in zip(bounds[:-1], bounds[1:]) if b - a > 0.05]
+
+
 def style_from_reference(ref_path: str) -> dict:
     """Turn a reference video's measured edit language into a style for auto_edit."""
     a = analyze.analyze_video(ref_path)
@@ -78,6 +83,14 @@ def style_from_reference(ref_path: str) -> dict:
         "cut_every": cut_every,
         "punch": round(min(0.9, 0.2 + s["mean_activity"] / 40), 2) if msl < 1.2 else 0.15,
         "flash": round(min(0.8, len(a["flashes"]) / cuts), 2),
+        # How many flashes per second, and how many of them sit on a cut. Many references flash on a
+        # beat INSIDE a shot; the old rule only flashed on an accented cut, so it made none at all.
+        # Shot lengths of the reference in beats, in order. auto_edit repeats this pattern, so the
+        # mix of short and long shots (and the number of cuts) follows the reference, not only the median.
+        "pattern": _beat_pattern(a["cuts"], a["file"]["duration"], beat),
+        "flash_rate": round(len(a["flashes"]) / max(1.0, a["file"]["duration"]), 3),
+        "flash_on_cut": round(sum(1 for f in a["flashes"]
+                                  if any(abs(f - c) < 0.1 for c in a["cuts"])) / max(1, len(a["flashes"])), 2),
         "shake": round(min(0.8, s["shake_share"] * 4), 2),
         "glitch": 0.0,
         "grade": _guess_grade(color_profile(ref_path)),
@@ -128,6 +141,30 @@ def _loop_music(music: str, start: float, duration: float, out_path: str) -> tup
                            f"{seg:.2f}s (from a bar end). Tell the user, or ask for a longer song.")
 
 
+def _place_flashes(clips: list[dict], starts: list[tuple[float, float]], beats: list[float],
+                   style: dict, total: float) -> None:
+    """Put the reference's number of flashes on the beat: some on cuts, the rest inside shots."""
+    n = int(round(style["flash_rate"] * total))
+    if n <= 0:
+        return
+    on_cut = [(k, 0.0) for k in range(1, len(clips))]
+    inside = []
+    for b in beats:
+        for k, (st, ln) in enumerate(starts):
+            if st + 0.12 <= b <= st + ln - 0.12:
+                inside.append((k, round(b - st, 3)))
+                break
+    n_cut = min(len(on_cut), int(round(n * style.get("flash_on_cut", 0.0))))
+    n_in = min(len(inside), n - n_cut)
+    n_cut = min(len(on_cut), n - n_in)  # too few beats inside shots: use more cuts
+
+    def spread(c: list, m: int) -> list:
+        return [c[j] for j in sorted({int(x) for x in np.linspace(0, len(c) - 1, m).round()})] if m > 0 else []
+
+    for k, at in spread(on_cut, n_cut) + spread(inside, n_in):
+        clips[k]["effects"].append({"type": "flash", "at": at, "dur": 0.1, "amount": 0.85})
+
+
 def build_edl(sources: list[str], music: str, out_path: str, style: dict | str = "hype",
               duration: float | None = None, music_start: float = 0.0,
               width: int = 1080, height: int = 1920, fps: int = 30,
@@ -162,9 +199,22 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
     if ramp and downbeats:  # cut on the grid that contains the downbeats (the strong beats)
         first = next((j for j, b in enumerate(beats) if round(b, 3) in downbeats), k - 1) % k
     marks = [0.0] + [b for b in beats[first::k] if 0.2 < b < total - 0.2] + [total]
+    pattern = [int(x) for x in style.get("pattern") or [] if int(x) >= 1]
+    if pattern and not ramp:  # a reference's own shot lengths in beats, repeated
+        # The first shot starts at 0: count 0 s as a beat when the first beat comes later.
+        step = float(np.median(np.diff(beats))) if len(beats) > 1 else 0.5
+        marks, j, n = [0.0], (0 if beats[0] < step / 2 else -1), 0
+        while True:
+            j += pattern[n % len(pattern)]
+            n += 1
+            if j >= len(beats) or beats[j] >= total - 0.2:
+                break
+            if beats[j] > 0.2:
+                marks.append(beats[j])
+        marks.append(total)
     # In loud sections, cut twice as often (when the grid is coarse).
     # Only when the track has a clearly louder part (3 dB over the median); else keep the grid.
-    if k >= 2 and not ramp and loud and np.percentile(loud, 75) > np.median(loud) + 3:
+    if k >= 2 and not ramp and not pattern and loud and np.percentile(loud, 75) > np.median(loud) + 3:
         q = np.percentile(loud, 75)
         dense = [0.0]
         for a, b in zip(marks[:-1], marks[1:]):
@@ -182,6 +232,7 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
     clips = []
     order = list(sources)
     prev_src = None
+    starts: list[tuple[float, float]] = []  # output start and length of each clip
     for i, (a, b) in enumerate(zip(marks[:-1], marks[1:])):
         length = b - a
         if length < 0.08:
@@ -220,7 +271,7 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
             fx.append({"type": "zoom", "from": 1.0 if z > 1 else 1.08, "to": z if z > 1 else 1.0})
         if accent and rng.random() < style.get("punch", 0):
             fx.append({"type": "zoom_punch", "at": 0, "dur": min(0.3, length * 0.8), "amount": 0.12 if ramp else 0.18})
-        if accent and i > 0 and rng.random() < style.get("flash", 0):
+        if "flash_rate" not in style and accent and i > 0 and rng.random() < style.get("flash", 0):
             # velocity: a 3-frame flash; others: up to 0.15 s
             fx.append({"type": "flash", "at": 0, "dur": 3 / fps if ramp else min(0.15, length * 0.5), "amount": 0.85})
         if rng.random() < style.get("shake", 0):
@@ -238,6 +289,10 @@ def build_edl(sources: list[str], music: str, out_path: str, style: dict | str =
             if t + length + ext <= analyses[s]["file"]["duration"]:
                 clip["out"] = round(t + length + ext, 3)
         clips.append(clip)
+        starts.append((a, length))
+
+    if style.get("flash_rate") and not ramp:
+        _place_flashes(clips, starts, beats, style, total)
 
     edl = {
         "output": {"path": out_path, "width": width, "height": height, "fps": fps, "fit": "cover",
