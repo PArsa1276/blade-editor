@@ -573,3 +573,41 @@ def test_speech_without_text_is_decoded_again(monkeypatch):
     out = captions._fill_holes(np.zeros(15 * sr, dtype=np.float32), first, decode, "fa")
     assert calls == [4.7, 11.7]                     # only the two holes, not the covered speech
     assert [s["text"] for s in out] == ["جمله اول", "یک جمله که جا افتاده بود"]
+
+
+def test_remake_assemble_cuts_each_shot_from_its_own_segment(tmp_path):
+    # A "generated" clip whose cuts are 0.3 s away from the plan (models do not cut on time):
+    # every shot must be taken from inside its own segment, at the reference length.
+    from blade_editor import remake
+    _ff("-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=1.8", "-f", "lavfi", "-i", "smptehdbars=s=320x180:r=30:d=0.9",
+        "-f", "lavfi", "-i", "mandelbrot=s=320x180:r=30,trim=duration=1.8",
+        "-filter_complex", "[0]format=yuv420p,setsar=1[a];[1]format=yuv420p,setsar=1[b];[2]format=yuv420p,setsar=1[c];"
+                           "[a][b][c]concat=n=3:v=1[v]", "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast",
+        str(tmp_path / "g1.mp4"))
+    true_cuts = [1.8, 2.7]
+    plan = {"reference": {"aspect": "16:9"},
+            "shots": [{"index": k, "duration": 0.5, "transition_in": "cut"} for k in range(3)],
+            "units": [{"id": "G1", "kind": "generate", "calls": 1, "shots": [0, 1, 2], "generate_s": 4.5,
+                       "beats": [{"t0": 0.0, "keep": 0.5}, {"t0": 1.5, "keep": 0.5}, {"t0": 3.0, "keep": 0.5}]}]}
+    res = remake.assemble(plan, {"G1": str(tmp_path / "g1.mp4")}, str(tmp_path / "out.mp4"))
+    assert res["units"][0]["used"] == "measured"
+    bounds = [0.0, *true_cuts, 4.5]
+    for k, c in enumerate(res["edl"]["clips"]):
+        assert bounds[k] < c["in"] < c["out"] < bounds[k + 1], (k, c)
+        assert abs((c["out"] - c["in"]) / c.get("speed", 1.0) - 0.5) < 0.01
+
+
+def test_remake_plan_groups_shots_and_measures_the_camera(media, tmp_path):
+    from blade_editor import remake
+    p = remake.plan(str(media / "src.mp4"), tmp_path / "w")
+    n = len(analyze.analyze_video(str(media / "src.mp4"), include_audio=False)["shots"])
+    assert p["reference"]["shots"] == len(p["shots"]) == n >= 2
+    assert all(s["camera"] for s in p["shots"])
+    assert sum(len(u["shots"]) for u in p["units"]) == n
+    # the colour bars (3-6 s) do not move: one still image, no Flow call
+    assert [u["kind"] for u in p["units"] if 1 in u["shots"]] == ["still"]
+    assert p["flow_calls"] <= p["one_call_per_shot"] == n - 1
+    for u in p["units"]:
+        assert u["kind"] in ("generate", "still")
+        if u["kind"] == "generate":
+            assert 3 <= u["generate_s"] <= 10 and u["beats"][-1]["t1"] == u["generate_s"]
