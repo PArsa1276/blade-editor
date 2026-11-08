@@ -106,8 +106,9 @@ Claude را به یکی از دو روش می‌توانید استفاده کن
 را روشن کنید، **Load unpacked** را بزنید و پوشهٔ `.blade-editor/chrome-extension` را در پوشهٔ کاربری خودتان
 انتخاب کنید (ویندوز: `C:\Users\<اسم شما>\.blade-editor\chrome-extension`). این کار فقط یک بار لازم است.
 
-اختیاری، کارت گرافیک NVIDIA برای زیرنویس سریع: نصب‌کننده اگر کارت NVIDIA پیدا کند، کتابخانه‌های CUDA 12 را
-خودش نصب می‌کند (حدود ۱ گیگابایت). اگر Blade گفت «GPU failed» یا «cublas64_12.dll is not found»، این را در
+اختیاری، کارت گرافیک NVIDIA برای زیرنویس سریع: نصب‌کننده اگر کارت NVIDIA پیدا کند، اول دنبال کتابخانه‌های
+CUDA 12 می‌گردد که برنامه‌های دیگر از قبل دارند (PyTorch، ComfyUI، CUDA Toolkit، cuDNN، Anaconda) و همان‌ها را
+به کار می‌برد؛ فقط اگر پیدا نکند، آن‌ها را دانلود می‌کند (حدود ۱ گیگابایت). اگر Blade گفت «GPU failed» یا «cublas64_12.dll is not found»، این را در
 ترمینال بزنید (ویندوز) و بعد Claude را دوباره باز کنید:
 ```
 %USERPROFILE%\.blade-editor\venv\Scripts\python.exe -m pip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12>=9,<10"

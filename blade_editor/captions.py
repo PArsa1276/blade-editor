@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
-import re
 import os
+import re
+import threading
 from pathlib import Path
 
 
@@ -179,11 +180,68 @@ def _cuda_lib_dirs(windows: bool | None = None) -> list[str]:
     return out
 
 
+# The CUDA 12 / cuDNN 9 files CTranslate2 needs on Windows. Many programs already have them (PyTorch,
+# the CUDA Toolkit, cuDNN, conda): use those and skip the ~1 GB download.
+CUBLAS, CUDNN = "cublas64_12.dll", "cudnn64_9.dll"
+
+
+def _system_cuda_dirs(env: dict | None = None) -> dict:
+    """Folders on this Windows computer that already have the CUDA 12 cuBLAS and cuDNN 9 DLLs.
+    Returns {"cublas": folder or None, "cudnn": folder or None}. Only known places are searched
+    (fast): CUDA_PATH*, the CUDA Toolkit and cuDNN folders, PATH, PyTorch in other Pythons, conda."""
+    env = dict(os.environ if env is None else env)
+    home = Path(env.get("USERPROFILE") or env.get("HOME") or Path.home())
+    local = Path(env.get("LOCALAPPDATA") or home / "AppData" / "Local")
+    roaming = Path(env.get("APPDATA") or home / "AppData" / "Roaming")
+    pf = Path(env.get("ProgramFiles") or "C:/Program Files")
+    pats = []
+    for k, v in env.items():
+        if k.upper().startswith("CUDA_PATH") and v:
+            pats += [Path(v) / "bin", Path(v) / "bin" / "x64"]
+    pats += [Path(x) for x in (env.get("PATH") or "").split(os.pathsep) if x]
+    globs = [(pf / "NVIDIA GPU Computing Toolkit" / "CUDA", "v12*/bin"),
+             (pf / "NVIDIA" / "CUDNN", "v9*/bin/12*"), (pf / "NVIDIA" / "CUDNN", "v9*/bin"),
+             (local / "Programs" / "Python", "Python3*/Lib/site-packages/torch/lib"),
+             (roaming / "Python", "Python3*/site-packages/torch/lib")]
+    for conda in ("anaconda3", "miniconda3", "miniforge3"):
+        globs += [(home / conda, "Library/bin"), (home / conda, "Lib/site-packages/torch/lib"),
+                  (home / conda, "envs/*/Library/bin"), (home / conda, "envs/*/Lib/site-packages/torch/lib")]
+    for root, g in globs:
+        try:
+            pats += sorted(root.glob(g), reverse=True) if root.is_dir() else []
+        except OSError:
+            pass
+    found = {"cublas": None, "cudnn": None}
+    for d in pats:
+        try:
+            if found["cublas"] is None and (d / CUBLAS).is_file() and (d / "cublasLt64_12.dll").is_file():
+                found["cublas"] = str(d)
+            if found["cudnn"] is None and (d / CUDNN).is_file():
+                found["cudnn"] = str(d)
+        except OSError:
+            continue
+        if all(found.values()):
+            break
+    return found
+
+
+def cuda_ready() -> bool:
+    """True when the CUDA 12 libraries are already here (pip packages or other programs):
+    the installer then skips the ~1 GB download."""
+    if os.name != "nt":
+        return bool(_cuda_lib_dirs())
+    names = {f.name.lower() for d in _cuda_lib_dirs() for f in Path(d).glob("*.dll")}
+    if CUBLAS in names and CUDNN in names:
+        return True
+    return all(_system_cuda_dirs().values())
+
+
 def _load_cuda_libs() -> list[str]:
     """Make the CUDA 12 libraries from the pip packages findable before CTranslate2 needs them.
     Without this, Windows says "cublas64_12.dll is not found" and the GPU is not used."""
     dirs = _cuda_lib_dirs()
     if os.name == "nt":
+        dirs += [d for d in _system_cuda_dirs().values() if d and d not in dirs]  # pip first, then others
         for d in dirs:
             try:
                 os.add_dll_directory(d)
@@ -202,8 +260,35 @@ def _load_cuda_libs() -> list[str]:
     return dirs
 
 
+# One loaded model per (model, device, compute type), kept for the next call: loading large-v3-turbo
+# takes ~3 s from disk (minutes the first time), and with a broken GPU it was loaded twice per file.
+_MODELS: dict = {}
+# One transcription at a time. Parallel calls each loaded their own model (~2.5 GB RAM each): an agent
+# that sent 9 files at once needed ~21 GB, the computer swapped and nothing finished in 30 minutes.
+_LOCK = threading.Lock()
+_GPU_FAILED: dict = {}  # model -> error text: after one GPU failure, go straight to the CPU
+
+
+def _whisper(model: str, dev: str, compute: str):
+    key = (model, dev, compute)
+    if key not in _MODELS:
+        from faster_whisper import WhisperModel
+        _MODELS[key] = WhisperModel(model, device=dev, compute_type=compute)
+    return _MODELS[key]
+
+
 def transcribe(path: str, language: str | None = None, model: str | None = None, device: str = "auto",
-               prompt: str | None = None) -> dict:
+               prompt: str | None = None, progress=None) -> dict:
+    """progress(done_seconds, total_seconds, message) is called while it works (for MCP progress)."""
+    tell = progress or (lambda *a: None)
+    if _LOCK.locked():
+        tell(0, None, "waiting: another transcription is running (one at a time)")
+    with _LOCK:
+        return _transcribe(path, language, model, device, prompt, tell)
+
+
+def _transcribe(path: str, language: str | None, model: str | None, device: str,
+                prompt: str | None, tell) -> dict:
     from . import ff
 
     model = model or saved_model() or DEFAULT_MODEL
@@ -219,10 +304,10 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
 
     if not available():
         raise RuntimeError("faster-whisper is not installed. Run: pip install 'blade-editor[captions]'")
-    from faster_whisper import WhisperModel
+    tell(0, duration, "loading the speech model")
 
     def run(dev: str, compute: str):
-        m = WhisperModel(model, device=dev, compute_type=compute)
+        m = _whisper(model, dev, compute)
         used.update(m=m)
         # temperature 0 and no carry-over of earlier text: the same file gives the same text, and one
         # wrong sentence does not spread into the next ones.
@@ -234,7 +319,11 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
                                  vad_parameters={"speech_pad_ms": 1000},
                                  beam_size=5, temperature=0.0, condition_on_previous_text=False,
                                  initial_prompt=prompt or None)
-        return list(segs), inf  # list() runs the decoding here, where a GPU error can be caught
+        out = []
+        for sg in segs:  # the decoding runs here, where a GPU error can be caught
+            out.append(sg)
+            tell(round(sg.end, 1), duration, f"speech to text: {sg.end:.0f} of {duration:.0f} s")
+        return out, inf
 
     used: dict = {}
 
@@ -246,18 +335,27 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
         return list(segs)
 
     note = None
-    if device != "cpu":
-        _load_cuda_libs()
-    try:
-        segments, info = run(device, "auto")
-    except (RuntimeError, OSError) as e:
-        # A GPU without its CUDA libraries (e.g. "cublas64_12.dll is not found") fails late: use the CPU.
-        if device == "cpu":
-            raise
+    if device == "auto" and model in _GPU_FAILED:  # failed before in this process: do not load it twice
+        err = _GPU_FAILED[model]
         segments, info = run("cpu", "int8")
-        device = f"cpu (GPU failed: {str(e)[:80]})"
-        if re.search(r"cublas|cudnn|cuda|\.dll|\.so", str(e), re.I):
-            note = GPU_FIX
+        device = f"cpu (GPU failed: {err[:80]})"
+        note = GPU_FIX if re.search(r"cublas|cudnn|cuda|\.dll|\.so", err, re.I) else None
+    else:
+        if device != "cpu":
+            _load_cuda_libs()
+        try:
+            segments, info = run(device, "auto")
+        except (RuntimeError, OSError) as e:
+            # A GPU without its CUDA libraries (e.g. "cublas64_12.dll is not found") fails late: use the CPU.
+            if device == "cpu":
+                raise
+            _GPU_FAILED[model] = str(e)
+            _MODELS.pop((model, device, "auto"), None)  # free the GPU copy
+            segments, info = run("cpu", "int8")
+            device = f"cpu (GPU failed: {str(e)[:80]})"
+            if re.search(r"cublas|cudnn|cuda|\.dll|\.so", str(e), re.I):
+                note = GPU_FIX
+    tell(duration, duration, "checking gaps without text")
     def seg(s, off: float = 0.0) -> dict:
         return {"start": round(s.start + off, 3), "end": round(s.end + off, 3), "text": s.text.strip(),
                 "words": [{"start": round(w.start + off, 3), "end": round(w.end + off, 3), "word": w.word,

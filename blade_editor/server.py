@@ -12,7 +12,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from mcp.server.mcpserver import Image, MCPServer
+import anyio
+from mcp.server.mcpserver import Context, Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, prompts, qa, recipes, remake, render, sfx, shorts, text
@@ -91,6 +92,44 @@ def _tool_with_errors():
 
 
 mcp.tool = _tool_with_errors
+
+
+HEARTBEAT = 20.0  # seconds between progress messages: Claude Code stops a tool after 30 min of silence
+
+
+async def _with_progress(ctx, work):
+    """Run work(tell) in a thread; send MCP progress at least every HEARTBEAT seconds, so a long
+    job (model download, a queue of files, a slow CPU) is not stopped as 'no response'."""
+    state = {"done": 0.0, "total": None, "msg": "starting"}
+
+    def tell(done, total=None, msg=None):
+        state.update(done=float(done or 0), total=total or state["total"], msg=msg or state["msg"])
+
+    async def send():
+        if ctx is None:
+            return
+        try:
+            await ctx.report_progress(state["done"], state["total"], state["msg"])
+        except Exception:
+            pass  # the client did not ask for progress, or it went away: the work goes on
+
+    result: dict = {}
+
+    async def run():
+        try:
+            result["r"] = await anyio.to_thread.run_sync(work, tell)
+        except Exception as e:  # re-raised below as itself, not inside an ExceptionGroup
+            result["e"] = e
+        tg.cancel_scope.cancel()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(run)
+        while True:
+            await send()
+            await anyio.sleep(HEARTBEAT)
+    if "e" in result:
+        raise result["e"]
+    return result["r"]
 
 
 def _project(name: str | None) -> Path:
@@ -611,8 +650,9 @@ def speech_models() -> dict:
 
 
 @mcp.tool()
-def transcribe(path: str, language: str | None = None, model: str | None = None, remember: bool = False,
-               device: str = "auto", prompt: str | None = None, project: str | None = None) -> dict:
+async def transcribe(path: str, language: str | None = None, model: str | None = None, remember: bool = False,
+                     device: str = "auto", prompt: str | None = None, project: str | None = None,
+                     ctx: Context | None = None) -> dict:
     """Step 1 of captions: speech to text with word times (needs faster-whisper). The full result
     is saved to `transcript_path`; you get `review`: one numbered line per segment, unsure words
     in [[ ]]. READ IT and correct it with `fix_transcript` before captions (step 2).
@@ -622,8 +662,10 @@ def transcribe(path: str, language: str | None = None, model: str | None = None,
     (e.g. .../large-v3.pt) or a faster-whisper folder; empty = the saved choice or large-v3-turbo.
     remember=true saves `model` as the default. device: auto (falls back to the CPU when the GPU's
     CUDA libraries are missing), cpu or cuda. If the result has 'gpu_fix', tell the user: the GPU
-    failed and the CPU was used; that text is the one install command that makes the GPU work."""
-    r = captions.transcribe(_abs(path), language, model, device, prompt)
+    failed and the CPU was used; that text is the one install command that makes the GPU work.
+    Several files: calls run one at a time (one shared model); sending them together is fine."""
+    r = await _with_progress(ctx, lambda tell: captions.transcribe(_abs(path), language, model, device, prompt,
+                                                                    progress=tell))
     if remember and model:
         captions.save_model(model)
     model = r["model"]

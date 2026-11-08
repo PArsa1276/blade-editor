@@ -26,8 +26,13 @@ say "Installing Blade Editor into its own folder (~/.blade-editor/venv)"
 "$HOME/.blade-editor/venv/bin/python" -m pip install -q --upgrade pip
 EXTRAS="captions,subject"
 if command -v nvidia-smi >/dev/null; then
-  EXTRAS="$EXTRAS,gpu"  # NVIDIA GPU: CUDA 12 libraries for fast captions
-  echo "NVIDIA GPU found: installing its CUDA 12 libraries for captions (about 1 GB)"
+  # NVIDIA GPU: captions need CUDA 12 cuBLAS + cuDNN 9. Use the system's when it has them (no download).
+  if ldconfig -p 2>/dev/null | grep -q "libcublas.so.12" && ldconfig -p 2>/dev/null | grep -q "libcudnn.so.9"; then
+    echo "NVIDIA GPU found: using the CUDA 12 libraries already on this computer (no download)"
+  else
+    EXTRAS="$EXTRAS,gpu"
+    echo "NVIDIA GPU found: installing its CUDA 12 libraries for captions (about 1 GB)"
+  fi
 fi
 "$HOME/.blade-editor/venv/bin/python" -m pip install -q ".[$EXTRAS]"
 SPY="$HOME/.blade-editor/venv/bin/python"

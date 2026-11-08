@@ -9,6 +9,14 @@ import pytest
 from blade_editor import analyze, audio, autoedit, ff, qa, render
 
 
+@pytest.fixture(autouse=True)
+def _fresh_speech_models(monkeypatch):
+    # captions keeps loaded models between calls; tests use fake models, so start empty each time.
+    from blade_editor import captions
+    monkeypatch.setattr(captions, "_MODELS", {})
+    monkeypatch.setattr(captions, "_GPU_FAILED", {})
+
+
 def _ff(*args):
     subprocess.run(["ffmpeg", "-hide_banner", "-v", "error", "-y", *args], check=True)
 
@@ -731,3 +739,99 @@ def test_gpu_finds_cuda_dlls_from_pip_and_explains_a_missing_one(tmp_path, monke
     r = captions.transcribe(str(tmp_path / "a.wav"), language="fa", model="large-v3-turbo", device="auto")
     assert r["device"].startswith("cpu (GPU failed")
     assert "nvidia-cublas-cu12" in r["gpu_fix"] and "nvidia-cudnn-cu12" in r["gpu_fix"]
+
+
+def test_transcribe_keeps_one_model_runs_one_at_a_time_and_reports_progress(tmp_path, monkeypatch):
+    # A real test on Windows: 9 files sent together, each loaded its own model (GPU first, then CPU
+    # after "cublas64_12.dll is not found"): ~21 GB RAM, nothing finished in 30 minutes.
+    import sys
+    import threading
+    import time
+    import types
+    from blade_editor import captions
+    made, active, peak = [], [0], [0]
+
+    class M:
+        def __init__(self, model, device, compute_type):
+            made.append(device)
+            self.device = device
+
+        def transcribe(self, samples, **kw):
+            if self.device != "cpu":
+                raise RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+            time.sleep(0.2)
+            active[0] -= 1
+            return iter([types.SimpleNamespace(start=0.0, end=0.8, text="سلام", words=[])]), \
+                types.SimpleNamespace(language="fa", duration=1.0)
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=M))
+    monkeypatch.setattr(captions, "_load_cuda_libs", lambda: [])
+    monkeypatch.setattr(captions, "_fill_holes", lambda samples, segs, decode, lang: segs)
+    _ff("-f", "lavfi", "-i", "sine=f=300:d=1", str(tmp_path / "a.wav"))
+    seen = []
+    r = captions.transcribe(str(tmp_path / "a.wav"), language="fa", device="auto",
+                            progress=lambda d, t, m: seen.append((d, m)))
+    assert r["device"].startswith("cpu (GPU failed") and r["gpu_fix"]
+    assert any(d == 0.8 for d, _ in seen), seen  # progress per decoded segment
+    runs = [threading.Thread(target=captions.transcribe, args=(str(tmp_path / "a.wav"),),
+                             kwargs=dict(language="fa", device="auto")) for _ in range(3)]
+    [t.start() for t in runs]
+    [t.join() for t in runs]
+    assert made == ["auto", "cpu"], made  # 4 calls: the GPU tried once, one CPU model shared
+    assert peak[0] == 1  # one at a time
+
+
+def test_long_tool_sends_progress_and_keeps_its_error(monkeypatch):
+    import asyncio
+    import time
+    from blade_editor import server
+    monkeypatch.setattr(server, "HEARTBEAT", 0.05)
+    got = []
+
+    class Ctx:
+        async def report_progress(self, done, total=None, msg=None):
+            got.append((done, msg))
+
+    def work(tell):
+        tell(1, 10, "speech to text: 1 of 10 s")
+        time.sleep(0.3)
+        return {"ok": 1}
+
+    assert asyncio.run(server._with_progress(Ctx(), work)) == {"ok": 1}
+    assert len(got) >= 3 and got[-1] == (1.0, "speech to text: 1 of 10 s"), got
+
+    def bad(tell):
+        raise RuntimeError("The file has no audio.")
+
+    with pytest.raises(RuntimeError, match="no audio"):
+        asyncio.run(server._with_progress(None, bad))
+
+
+def test_gpu_uses_cuda_dlls_other_programs_already_have(tmp_path):
+    # No 1 GB download when PyTorch (or the CUDA Toolkit / cuDNN) already has the CUDA 12 DLLs.
+    from blade_editor import captions
+    home = tmp_path / "Parsa"
+    torch_lib = home / "AppData" / "Local" / "Programs" / "Python" / "Python312" / "Lib" / "site-packages" / "torch" / "lib"
+    old_torch = home / "AppData" / "Local" / "Programs" / "Python" / "Python310" / "Lib" / "site-packages" / "torch" / "lib"
+    for d, files in ((torch_lib, ("cublas64_12.dll", "cublasLt64_12.dll", "cudnn64_9.dll")),
+                     (old_torch, ("cublas64_11.dll", "cublasLt64_11.dll", "cudnn64_8.dll"))):  # CUDA 11: not usable
+        d.mkdir(parents=True)
+        for f in files:
+            (d / f).write_bytes(b"")
+    env = {"USERPROFILE": str(home), "LOCALAPPDATA": str(home / "AppData" / "Local"),
+           "APPDATA": str(home / "AppData" / "Roaming"), "ProgramFiles": str(tmp_path / "pf"), "PATH": ""}
+    assert captions._system_cuda_dirs(env) == {"cublas": str(torch_lib), "cudnn": str(torch_lib)}
+    # The CUDA Toolkit (cuBLAS) and cuDNN in their own folders, found from CUDA_PATH and Program Files.
+    cuda = tmp_path / "pf" / "NVIDIA GPU Computing Toolkit" / "CUDA" / "v12.6" / "bin"
+    cudnn = tmp_path / "pf" / "NVIDIA" / "CUDNN" / "v9.5" / "bin" / "12.6"
+    for d, files in ((cuda, ("cublas64_12.dll", "cublasLt64_12.dll")), (cudnn, ("cudnn64_9.dll",))):
+        d.mkdir(parents=True)
+        for f in files:
+            (d / f).write_bytes(b"")
+    env2 = {**env, "USERPROFILE": str(tmp_path / "nobody"), "LOCALAPPDATA": str(tmp_path / "x"),
+            "CUDA_PATH": str(cuda.parent)}
+    assert captions._system_cuda_dirs(env2) == {"cublas": str(cuda), "cudnn": str(cudnn)}
+    env3 = {**env2, "CUDA_PATH": "", "ProgramFiles": str(tmp_path / "none")}
+    assert captions._system_cuda_dirs(env3) == {"cublas": None, "cudnn": None}
