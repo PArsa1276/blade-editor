@@ -31,8 +31,12 @@ language, and ask at most 2 questions (only what you cannot measure or guess wel
 Never send a one-line prompt. Build every clip with `video_prompt` and send its `prompt` with
 `flow_generate_video(direct=false)`.
 
-Model: the user's Flow model is **Omni 1.1 Flash** (`model="omni-1.1-flash"`, the default):
-- clips of 3-10 s (8 s is a good default); aspect 16:9 or 9:16 only;
+Model: the user's Flow model is **Omni 1.2 Flash** (`model="omni-1.2-flash"`, the default; Omni 1.1
+Flash is `model="omni-1.1-flash"`, 3-10 s):
+- clips of 3-15 s in **whole seconds** (8-10 s is a good default for one shot); a clip made from a
+  first AND a last frame is at most 10 s; aspect 16:9 or 9:16 only;
+- 1.2 makes fewer unwanted cuts than 1.1; for several planned cuts in one clip, stay at about 12 s
+  or less (not measured yet beyond that);
 - Flow sets the aspect and the number of takes in its Agent settings ("Video generation default":
   16:9 or 9:16, x1-x4), not in the prompt: use the same `aspect` as that setting (ask the user
   if unknown; 9:16 for Reels/TikTok/Shorts) and recommend x1 (x2-x4 make more takes and spend

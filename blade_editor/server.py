@@ -777,7 +777,7 @@ async def flow_status(port: int = 0) -> list:
 
 
 @mcp.tool()
-def remake_plan(reference: str, aspect: str | None = None, model: str = "omni-1.1-flash",
+def remake_plan(reference: str, aspect: str | None = None, model: str = "omni-1.2-flash",
                 multi_shot: bool = True, project: str | None = None) -> dict:
     """Plan a NEW video in the style of a reference when the user has no footage: Google Flow makes
     the shots. Measures the reference (cuts, crossfades, camera move per shot, same-scene groups)
@@ -817,13 +817,14 @@ def remake_assemble(plan_path: str, clips: dict[str, str], output_path: str, mus
 @mcp.tool()
 def video_prompt(beats: list[dict], style: str, duration: float = 8.0, aspect: str = "16:9",
                  subject: str = "", setting: str = "", audio: str = "", negative: str = "",
-                 continuity: str = "", model: str = "omni-1.1-flash", takes: str = "single") -> dict:
+                 continuity: str = "", model: str = "omni-1.2-flash", takes: str = "single") -> dict:
     """Build a detailed, timed (second-by-second) Google Flow prompt from a shot list and
     check it. ALWAYS use this before flow_generate_video - short prompts give weak clips.
     beats: [{t0, t1, camera (angle + movement + lens, e.g. "low-angle 24mm, slow dolly in"),
     subject?, action (what moves, how fast, the physics), setting?, lighting (source, direction,
     colour), audio?, dialogue?: ["the woman", "line"]}] covering 0..duration, about one change per
-    1.5-2 s. model: omni-1.1-flash (default: 3-10 s, 16:9/9:16, English) or veo. takes: "single"
+    1.5-2 s. model: omni-1.2-flash (default: 3-15 s in whole seconds, 16:9/9:16, English; with both
+    first_frame and last_frame at most 10 s), omni-1.1-flash (3-10 s) or veo. takes: "single"
     (one continuous shot, camera moves between beats) or "cuts" (each beat is its own shot).
     dialogue may add the voice: ["the man", "line", "in a calm deep voice"]. style: film look/genre (e.g. "Cinematic 35mm film, teal-orange grade, shallow depth of
     field"). subject/setting/continuity: what stays the same in every beat (face, clothes, props).

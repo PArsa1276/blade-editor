@@ -291,7 +291,9 @@ def test_video_prompt_is_timed_and_checked():
     assert 'the driver says: "Again."' in p and "No text. No watermark. No people." in p
     cuts = prompts.build(beats, "x", takes="cuts", audio="a")["prompt"]
     assert "[3-6s] Cut to:" in cuts and "No scene cuts" not in cuts
-    assert any("3-10 s" in i for i in prompts.build(beats, "x", duration=12, audio="a")["issues"])
+    assert any("3-15 s" in i for i in prompts.build(beats, "x", duration=16, audio="a")["issues"])
+    assert any("3-10 s" in i for i in prompts.build(beats, "x", duration=12, audio="a",
+                                                     model="omni-1.1-flash")["issues"])
     veo = prompts.build(beats, "x", model="veo", audio="a", negative="text")["prompt"]
     assert "[00.00-03.00s] Camera: wide 24mm" in veo and "Negative prompt: text." in veo
     bad = prompts.build(beats[:1], "x", model="veo", negative="no text")
@@ -835,3 +837,21 @@ def test_gpu_uses_cuda_dlls_other_programs_already_have(tmp_path):
     assert captions._system_cuda_dirs(env2) == {"cublas": str(cuda), "cudnn": str(cudnn)}
     env3 = {**env2, "CUDA_PATH": "", "ProgramFiles": str(tmp_path / "none")}
     assert captions._system_cuda_dirs(env3) == {"cublas": None, "cudnn": None}
+
+
+def test_omni_12_flash_makes_15_s_clips(tmp_path):
+    # Omni 1.2 Flash (Nov 2026): 3-15 s in whole seconds; 1.1: 3-10 s.
+    from blade_editor import prompts, remake
+    beats = [{"t0": 0, "t1": 7, "camera": "slow dolly in, 35mm", "action": "a cyclist rides through the park"},
+             {"t0": 7, "t1": 13, "camera": "slow orbit left", "action": "the cyclist stops and looks at the lake"}]
+    kw = dict(style="Cinematic 35mm film", audio="soft piano, birds", aspect="9:16")
+    assert not [i for i in prompts.build(beats, duration=13, **kw)["issues"] if "13" in i or "whole" in i]
+    assert any("3-10 s" in i for i in prompts.build(beats, duration=13, model="omni-1.1-flash", **kw)["issues"])
+    half = [dict(beats[0], t1=6.5), dict(beats[1], t0=6.5, t1=12.5)]
+    assert any("whole seconds" in i for i in prompts.build(half, duration=12.5, **kw)["issues"])
+    # A 13 s single shot: one Flow call with 1.2, two with 1.1.
+    _ff("-f", "lavfi", "-i", "testsrc2=s=360x640:r=30:d=13", "-c:v", "libx264", "-preset", "ultrafast",
+        str(tmp_path / "long.mp4"))
+    calls = {m: remake.plan(str(tmp_path / "long.mp4"), tmp_path / "w", m)["flow_calls"]
+             for m in ("omni-1.2-flash", "omni-1.1-flash")}
+    assert calls == {"omni-1.2-flash": 1, "omni-1.1-flash": 2}, calls

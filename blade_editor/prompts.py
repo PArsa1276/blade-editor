@@ -1,9 +1,12 @@
 """Detailed, timed prompts for Google Flow video models, built from a shot list.
 
-model="omni-1.1-flash" (Gemini Omni Flash 1.1, default): 3-10 s, 16:9 or 9:16, timecode blocks
+model="omni-1.2-flash" (Gemini Omni 1.2 Flash, default): 3-15 s in whole seconds (a clip made from a
+first AND a last frame: at most 10 s), fewer unwanted cuts than 1.1. model="omni-1.1-flash": 3-10 s.
+Both Omni models: 16:9 or 9:16, timecode blocks
 "[0-3s]", every block opens with the camera, either one continuous shot ("Single continuous shot.
 No scene cuts.") or cuts ("Cut to:") - never both, negatives written as "No ..." sentences (Omni has
-no negative field), English text. Sources: Gemini API Omni docs, Runware Omni 1.1 prompting guide.
+no negative field), English text. Sources: Gemini API Omni docs, Runware Omni 1.1 prompting guide,
+Google's Omni 1.2 Flash announcement (Nov 2026).
 model="veo": Google's Veo prompt guide: subject, action, scene, visual style, camera
 (angle, movement, lens), lighting, temporal pacing, audio in separate sentences, dialogue as
 "<who> says: ...", and negative terms as plain nouns (no "no"/"don't").
@@ -17,12 +20,14 @@ FIELDS = ("camera", "subject", "action", "setting", "lighting", "audio")
 _NEG_WORDS = re.compile(r"\b(no|not|don't|dont|without|never|avoid)\b", re.I)
 
 
-MODELS = ("omni-1.1-flash", "veo")
+MODELS = ("omni-1.2-flash", "omni-1.1-flash", "veo")
+OMNI_MAX = {"omni-1.2-flash": 15, "omni-1.1-flash": 10}  # longest clip in seconds (shortest: 3)
+DEFAULT_MODEL = "omni-1.2-flash"
 
 
 def build(beats: list[dict], style: str, duration: float = 8.0, aspect: str = "16:9",
           subject: str = "", setting: str = "", audio: str = "", negative: str = "",
-          continuity: str = "", model: str = "omni-1.1-flash", takes: str = "single") -> dict:
+          continuity: str = "", model: str = DEFAULT_MODEL, takes: str = "single") -> dict:
     """beats: [{t0, t1, camera, subject?, action, setting?, lighting?, audio?, dialogue?: [who, line]}]
     in time order. Returns the final prompt and the problems found."""
     if not beats:
@@ -45,9 +50,13 @@ def build(beats: list[dict], style: str, duration: float = 8.0, aspect: str = "1
     if takes not in ("single", "cuts"):
         raise ValueError("takes must be 'single' (one continuous shot) or 'cuts' (each beat is a shot).")
     if omni:
-        if not 3 <= duration <= 10:
-            issues.append("Omni Flash makes 3-10 s clips: set duration in 3..10 (use more clips or "
+        top = OMNI_MAX[model]
+        if not 3 <= duration <= top:
+            issues.append(f"{model} makes 3-{top} s clips: set duration in 3..{top} (use more clips or "
                           "Flow's extend for longer).")
+        elif model == "omni-1.2-flash" and abs(duration - round(duration)) > 1e-6:
+            issues.append("Omni 1.2 Flash takes whole seconds (3, 4, ... 15): round the duration and the "
+                          "beat times to match.")
         if aspect not in ("16:9", "9:16"):
             issues.append("Omni Flash supports only 16:9 and 9:16.")
         if re.search(r"[\u0600-\u06FF]", " ".join(str(v) for b in beats for v in b.values())):
