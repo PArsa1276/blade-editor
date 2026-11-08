@@ -180,11 +180,68 @@ def _cuda_lib_dirs(windows: bool | None = None) -> list[str]:
     return out
 
 
+# The CUDA 12 / cuDNN 9 files CTranslate2 needs on Windows. Many programs already have them (PyTorch,
+# the CUDA Toolkit, cuDNN, conda): use those and skip the ~1 GB download.
+CUBLAS, CUDNN = "cublas64_12.dll", "cudnn64_9.dll"
+
+
+def _system_cuda_dirs(env: dict | None = None) -> dict:
+    """Folders on this Windows computer that already have the CUDA 12 cuBLAS and cuDNN 9 DLLs.
+    Returns {"cublas": folder or None, "cudnn": folder or None}. Only known places are searched
+    (fast): CUDA_PATH*, the CUDA Toolkit and cuDNN folders, PATH, PyTorch in other Pythons, conda."""
+    env = dict(os.environ if env is None else env)
+    home = Path(env.get("USERPROFILE") or env.get("HOME") or Path.home())
+    local = Path(env.get("LOCALAPPDATA") or home / "AppData" / "Local")
+    roaming = Path(env.get("APPDATA") or home / "AppData" / "Roaming")
+    pf = Path(env.get("ProgramFiles") or "C:/Program Files")
+    pats = []
+    for k, v in env.items():
+        if k.upper().startswith("CUDA_PATH") and v:
+            pats += [Path(v) / "bin", Path(v) / "bin" / "x64"]
+    pats += [Path(x) for x in (env.get("PATH") or "").split(os.pathsep) if x]
+    globs = [(pf / "NVIDIA GPU Computing Toolkit" / "CUDA", "v12*/bin"),
+             (pf / "NVIDIA" / "CUDNN", "v9*/bin/12*"), (pf / "NVIDIA" / "CUDNN", "v9*/bin"),
+             (local / "Programs" / "Python", "Python3*/Lib/site-packages/torch/lib"),
+             (roaming / "Python", "Python3*/site-packages/torch/lib")]
+    for conda in ("anaconda3", "miniconda3", "miniforge3"):
+        globs += [(home / conda, "Library/bin"), (home / conda, "Lib/site-packages/torch/lib"),
+                  (home / conda, "envs/*/Library/bin"), (home / conda, "envs/*/Lib/site-packages/torch/lib")]
+    for root, g in globs:
+        try:
+            pats += sorted(root.glob(g), reverse=True) if root.is_dir() else []
+        except OSError:
+            pass
+    found = {"cublas": None, "cudnn": None}
+    for d in pats:
+        try:
+            if found["cublas"] is None and (d / CUBLAS).is_file() and (d / "cublasLt64_12.dll").is_file():
+                found["cublas"] = str(d)
+            if found["cudnn"] is None and (d / CUDNN).is_file():
+                found["cudnn"] = str(d)
+        except OSError:
+            continue
+        if all(found.values()):
+            break
+    return found
+
+
+def cuda_ready() -> bool:
+    """True when the CUDA 12 libraries are already here (pip packages or other programs):
+    the installer then skips the ~1 GB download."""
+    if os.name != "nt":
+        return bool(_cuda_lib_dirs())
+    names = {f.name.lower() for d in _cuda_lib_dirs() for f in Path(d).glob("*.dll")}
+    if CUBLAS in names and CUDNN in names:
+        return True
+    return all(_system_cuda_dirs().values())
+
+
 def _load_cuda_libs() -> list[str]:
     """Make the CUDA 12 libraries from the pip packages findable before CTranslate2 needs them.
     Without this, Windows says "cublas64_12.dll is not found" and the GPU is not used."""
     dirs = _cuda_lib_dirs()
     if os.name == "nt":
+        dirs += [d for d in _system_cuda_dirs().values() if d and d not in dirs]  # pip first, then others
         for d in dirs:
             try:
                 os.add_dll_directory(d)

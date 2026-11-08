@@ -807,3 +807,31 @@ def test_long_tool_sends_progress_and_keeps_its_error(monkeypatch):
 
     with pytest.raises(RuntimeError, match="no audio"):
         asyncio.run(server._with_progress(None, bad))
+
+
+def test_gpu_uses_cuda_dlls_other_programs_already_have(tmp_path):
+    # No 1 GB download when PyTorch (or the CUDA Toolkit / cuDNN) already has the CUDA 12 DLLs.
+    from blade_editor import captions
+    home = tmp_path / "Parsa"
+    torch_lib = home / "AppData" / "Local" / "Programs" / "Python" / "Python312" / "Lib" / "site-packages" / "torch" / "lib"
+    old_torch = home / "AppData" / "Local" / "Programs" / "Python" / "Python310" / "Lib" / "site-packages" / "torch" / "lib"
+    for d, files in ((torch_lib, ("cublas64_12.dll", "cublasLt64_12.dll", "cudnn64_9.dll")),
+                     (old_torch, ("cublas64_11.dll", "cublasLt64_11.dll", "cudnn64_8.dll"))):  # CUDA 11: not usable
+        d.mkdir(parents=True)
+        for f in files:
+            (d / f).write_bytes(b"")
+    env = {"USERPROFILE": str(home), "LOCALAPPDATA": str(home / "AppData" / "Local"),
+           "APPDATA": str(home / "AppData" / "Roaming"), "ProgramFiles": str(tmp_path / "pf"), "PATH": ""}
+    assert captions._system_cuda_dirs(env) == {"cublas": str(torch_lib), "cudnn": str(torch_lib)}
+    # The CUDA Toolkit (cuBLAS) and cuDNN in their own folders, found from CUDA_PATH and Program Files.
+    cuda = tmp_path / "pf" / "NVIDIA GPU Computing Toolkit" / "CUDA" / "v12.6" / "bin"
+    cudnn = tmp_path / "pf" / "NVIDIA" / "CUDNN" / "v9.5" / "bin" / "12.6"
+    for d, files in ((cuda, ("cublas64_12.dll", "cublasLt64_12.dll")), (cudnn, ("cudnn64_9.dll",))):
+        d.mkdir(parents=True)
+        for f in files:
+            (d / f).write_bytes(b"")
+    env2 = {**env, "USERPROFILE": str(tmp_path / "nobody"), "LOCALAPPDATA": str(tmp_path / "x"),
+            "CUDA_PATH": str(cuda.parent)}
+    assert captions._system_cuda_dirs(env2) == {"cublas": str(cuda), "cudnn": str(cudnn)}
+    env3 = {**env2, "CUDA_PATH": "", "ProgramFiles": str(tmp_path / "none")}
+    assert captions._system_cuda_dirs(env3) == {"cublas": None, "cudnn": None}
