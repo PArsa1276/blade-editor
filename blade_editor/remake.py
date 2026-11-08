@@ -24,8 +24,11 @@ from . import analyze, camera, ff
 
 # Google Flow, Omni 1.1 Flash: 3-10 s per clip. Several hard cuts in one clip stay reliable up to
 # about 8 s (rea-video S06: "over ~10 s often fails"). Very short generations are unstable: make at
-# least 4 s and trim.
-LIMITS = {"omni-1.1-flash": {"min": 3.0, "max": 10.0, "multi_prefer": 8.0, "multi_max": 10.0, "unit_min": 4.0},
+# least 4 s and trim. Omni 1.2 Flash (Nov 2026): 3-15 s in whole seconds and fewer unwanted cuts; how
+# many planned cuts it keeps in one 15 s clip is not measured yet, so multi-shot clips stay <= 12 s
+# (assemble measures the real cuts anyway).
+LIMITS = {"omni-1.2-flash": {"min": 3.0, "max": 15.0, "multi_prefer": 12.0, "multi_max": 15.0, "unit_min": 4.0},
+          "omni-1.1-flash": {"min": 3.0, "max": 10.0, "multi_prefer": 8.0, "multi_max": 10.0, "unit_min": 4.0},
           "veo": {"min": 4.0, "max": 8.0, "multi_prefer": 8.0, "multi_max": 8.0, "unit_min": 4.0}}
 SAME_SCENE = 0.5  # Bhattacharyya distance of HSV histograms (rea-video default)
 
@@ -107,9 +110,11 @@ def _split(run: list[dict], lim: dict, multi_shot: bool) -> list[list[dict]]:
     return out[::-1]
 
 
-def plan(path: str, work: Path, model: str = "omni-1.1-flash", aspect: str | None = None,
+def plan(path: str, work: Path, model: str = "omni-1.2-flash", aspect: str | None = None,
          multi_shot: bool = True, a: dict | None = None) -> dict:
-    lim = LIMITS.get(model, LIMITS["omni-1.1-flash"])
+    if model not in LIMITS:
+        raise ValueError(f"Unknown model '{model}'. Use: {', '.join(LIMITS)}")
+    lim = LIMITS[model]
     work.mkdir(parents=True, exist_ok=True)
     info = ff.probe(path)
     w, h = info.get("width") or 1080, info.get("height") or 1920
