@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blade-editor"
-version = "0.1.0b1"
+version = "0.1.0b2"
 description = "Free, local video-editing MCP server: beat-synced edits, effects, Persian text, captions."
 readme = "README.md"
 requires-python = ">=3.10"

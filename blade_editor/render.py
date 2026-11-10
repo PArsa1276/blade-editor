@@ -99,7 +99,7 @@ def normalize(edl: dict) -> dict:
     out.setdefault("height", 1920)
     out.setdefault("fps", 30)
     out.setdefault("fit", "cover")
-    out.setdefault("crf", 18)
+    out.setdefault("crf", 20)  # 18 gave very large files (80 s at crf 16: 470 MB); 20 looks the same on a phone
     out.setdefault("preset", "medium")
     if not out.get("path"):
         raise ValueError("output.path is required.")
@@ -420,10 +420,31 @@ def render(edl: dict, work_dir: str | Path, preview: bool = False) -> dict:
         ow = int(W * float(ov.get("width", 0.3))) // 2 * 2
         x, y = float(ov.get("x", 0.5)), float(ov.get("y", 0.5))
         idx = _input_count(args) - 1
-        graph.append(f"[{idx}:v]scale={ow}:-2,format=rgba,colorchannelmixer=aa={float(ov.get('opacity', 1)):.3f},"
-                     f"fade=t=in:st=0:d=0.15:alpha=1,setpts=PTS-STARTPTS+{st:.4f}/TB[ov{j}]")
-        graph.append(f"[{cur_v}][ov{j}]overlay=x='{x:.3f}*W-w/2':y='{y:.3f}*H-h/2':eof_action=pass:"
-                     f"enable='between(t,{st:.4f},{en:.4f})'[vo{j}]")
+        fi, fo = max(0.0, float(ov.get("fade_in", 0.15))), max(0.0, float(ov.get("fade_out", 0.0)))
+        opacity, blend = float(ov.get("opacity", 1)), ov.get("blend", "normal")
+        if blend not in ("normal", "screen", "add"):
+            raise ValueError(f"Unknown overlay blend '{blend}'. Use normal, screen or add.")
+        is_img = Path(osrc).suffix.lower() in IMAGE_EXT
+        if blend == "normal":
+            fades = (f"fade=t=in:st=0:d={fi:.3f}:alpha=1," if fi else "") + \
+                    (f"fade=t=out:st={max(0.0, en - st - fo):.3f}:d={fo:.3f}:alpha=1," if fo else "")
+            graph.append(f"[{idx}:v]scale={ow}:-2,format=rgba,colorchannelmixer=aa={opacity:.3f},"
+                         f"{fades}setpts=PTS-STARTPTS+{st:.4f}/TB[ov{j}]")
+            graph.append(f"[{cur_v}][ov{j}]overlay=x='{x:.3f}*W-w/2':y='{y:.3f}*H-h/2':eof_action=pass:"
+                         f"enable='between(t,{st:.4f},{en:.4f})'[vo{j}]")
+        else:
+            # screen / add: black in the overlay changes nothing (a light leak, a title card on
+            # black, sparks). The overlay is put on a black frame-sized canvas and blended in RGB.
+            mode = "addition" if blend == "add" else "screen"
+            fades = (f"fade=t=in:st={st:.4f}:d={fi:.3f}," if fi else "") + \
+                    (f"fade=t=out:st={max(st, en - fo):.4f}:d={fo:.3f}," if fo else "")
+            delay = "" if is_img else f"tpad=start_duration={st:.4f}:color=black,"
+            graph.append(f"[{idx}:v]fps={out['fps']},scale={ow}:-2,format=gbrp,"
+                         f"pad={W}:{H}:x='max(0,min(ow-iw,{x:.3f}*ow-iw/2))':y='max(0,min(oh-ih,{y:.3f}*oh-ih/2))':color=black,"
+                         f"{delay}{fades}setsar=1[ov{j}]")
+            graph.append(f"[{cur_v}]format=gbrp[vb{j}]")
+            graph.append(f"[vb{j}][ov{j}]blend=all_mode={mode}:all_opacity={opacity:.3f}:repeatlast=1:shortest=0:"
+                         f"enable='between(t,{st:.4f},{en:.4f})',format=yuv420p[vo{j}]")
         cur_v = f"vo{j}"
     behind = [t for t in edl["texts"] if t.get("behind_subject")]
     edl["texts"] = [t for t in edl["texts"] if not t.get("behind_subject")]
@@ -437,7 +458,8 @@ def render(edl: dict, work_dir: str | Path, preview: bool = False) -> dict:
         base = render(base_edl, work, preview=preview)["output"]
         mask = subject.mask_video(base, str(work / ("subject_mask_preview.mkv" if preview else "subject_mask.mkv")),
                                   W, H, out["fps"], [(float(t["start"]), float(t["end"])) for t in behind],
-                                  edl.get("subject_model", "u2net"))
+                                  edl.get("subject_model", "u2net"), keep=edl.get("subject_keep"),
+                                  remove=edl.get("subject_remove"))
         args += ["-i", mask]
         mi = _input_count(args) - 1
         bass = text.write_ass(behind, W, H, work / ("behind_preview.ass" if preview else "behind.ass"))
@@ -450,6 +472,10 @@ def render(edl: dict, work_dir: str | Path, preview: bool = False) -> dict:
     if edl["texts"]:
         ass = text.write_ass(edl["texts"], W, H, work / ("preview.ass" if preview else "final.ass"))
         vpost.append(f"ass=filename='{_fesc(ass)}':fontsdir='{_fesc(text.FONTS_DIR)}':shaping=complex")
+    if out.get("timecode"):  # the output time on the picture: easy to name a moment when checking
+        font = _fesc(text.FONTS_DIR / "Vazirmatn-Bold.ttf")
+        vpost.append(f"drawtext=fontfile='{font}':text='%{{pts\\:hms}}':x=w*0.03:y=h*0.03:fontsize=h*0.03:"
+                     "fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=6")
     vpost += ["format=yuv420p"]
     graph.append(f"[{cur_v}]{','.join(vpost)}[vfinal]")
 
@@ -513,10 +539,15 @@ def render(edl: dict, work_dir: str | Path, preview: bool = False) -> dict:
             *venc, "-r", str(out["fps"]), "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
             "-t", f"{total:.4f}", str(final)])
     info = ff.probe(final)
-    return {"output": str(final.resolve()), "duration": round(info["duration"], 3),
-            "width": info["video"]["width"], "height": info["video"]["height"],
-            "size_mb": round(info["size_bytes"] / 1e6, 2), "timeline": rows,
-            "render_seconds": round(time.time() - t0, 1), "preview": preview}
+    res = {"output": str(final.resolve()), "duration": round(info["duration"], 3),
+           "width": info["video"]["width"], "height": info["video"]["height"],
+           "size_mb": round(info["size_bytes"] / 1e6, 2), "timeline": rows,
+           "render_seconds": round(time.time() - t0, 1), "preview": preview}
+    mb_s = res["size_mb"] / max(0.1, res["duration"])
+    if not preview and mb_s > 2.0:  # about 16 Mbit/s: more than phones and platforms use
+        res["size_note"] = (f"Large file: {res['size_mb']} MB ({mb_s:.1f} MB per second). For sharing, set "
+                            f"output.max_mb (e.g. {max(10, int(res['duration'] * 0.9))}) or a higher output.crf (22-24).")
+    return res
 
 
 def _input_count(args: list[str]) -> int:

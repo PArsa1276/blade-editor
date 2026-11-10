@@ -5,7 +5,8 @@ cd "$(dirname "$0")"
 say() { printf '\n==> %s\n' "$1"; }
 
 say "Checking Python (3.10 or newer)"
-PY=$(command -v python3 || true)
+# Python 3.12 or 3.11 first: the newest Python often has no GPU packages yet.
+PY=$(command -v python3.12 || command -v python3.11 || command -v python3 || true)
 if [ -z "$PY" ] || ! "$PY" -c 'import sys; sys.exit(sys.version_info < (3, 10))'; then
   if command -v brew >/dev/null; then brew install python; PY=$(command -v python3)
   elif command -v apt-get >/dev/null; then sudo apt-get install -y python3 python3-pip python3-venv; PY=$(command -v python3)

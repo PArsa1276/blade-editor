@@ -16,7 +16,7 @@ import anyio
 from mcp.server.mcpserver import Context, Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, prompts, qa, recipes, remake, render, sfx, shorts, text
+from . import __build__, __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, prompts, qa, recipes, remake, render, sfx, shorts, text
 
 HOME = Path(os.environ.get("BLADE_HOME", Path.home() / "blade_projects")).expanduser()
 
@@ -168,7 +168,7 @@ def start_here() -> dict:
     if first:
         HOME.mkdir(parents=True, exist_ok=True)
         FIRST_USE_MARK.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
-    return {"first_use": first, "version": __version__,
+    return {"first_use": first, "version": __version__, "build": __build__, "python": sys.version.split()[0],
             "next": ("Ask the user, in their own language, if they want the Blade Editor user guide. "
                      "If yes, call `guide`." if first else
                      "Continue with the user's request. The guide is available with `guide`.")}
@@ -210,7 +210,7 @@ def capabilities() -> dict:
         "version": __version__,
         "projects_dir": str(HOME),
         "edl_format": {
-            "output": "{path, width=1080, height=1920, fps=30, fit='cover'|'contain'|'blur', grade, global_grade, crf=18, preset='medium', max_mb}",
+            "output": "{path, width=1080, height=1920, fps=30, fit='cover'|'contain'|'blur', grade, global_grade, crf=20 (lower = better and larger; 18 for an archive master), preset='medium', max_mb (size limit for sharing)}",
             "clips[]": "{src (video, image, or 'color:#RRGGBB'), in, out | duration, speed=1, "
                        "ramp=[[source_seconds, speed], ...] (speed ramp, replaces out/speed), slowmo=auto|flow|blend|none (slowed parts: flow = optical-flow in-between frames, real smooth slow motion, slower render; auto = flow in the final render for speed <= 0.75, blend in previews), stabilize=false, reverse=false, "
                        "fit, focus=[x,y] (0..1 crop centre for cover) or 'auto' (follows motion), mute, volume, "
@@ -222,9 +222,12 @@ def capabilities() -> dict:
                        "behind_subject=false (true: the text goes BEHIND the person/object in the shot - big "
                        "bold titles wider than the subject look best; the subject is found by a local AI "
                        "model, about 0.1-0.3 s per frame inside the text's time)}. Top-level "
-                       "subject_model: u2net (any subject, default) | u2net_human_seg (people) | silueta (fast)",
+                       "subject_model: u2net (any subject, default) | birefnet_lite (best edges, slower) | u2net_human_seg (people) | silueta (fast); "
+                       "subject_keep / subject_remove: boxes [x0,y0,x1,y1] (0..1) that always stay / go",
             "global_effects[]": "same effect objects, times in output seconds",
-            "overlays[]": "{src (png/jpg/video or 'emoji:🔥'), start, end, x, y (0..1 centre), width (fraction of frame), opacity}",
+            "overlays[]": "{src (png/jpg/video or 'emoji:🔥'), start, end, x, y (0..1 centre), width (fraction of frame), opacity, "
+                          "fade_in=0.15, fade_out=0 (seconds), blend='normal'|'screen'|'add' (screen/add: black in the overlay is "
+                          "invisible - light leaks, sparks, a title card made on black; no alpha needed)}",
             "audio": "{music, music_start, volume, fade_in, fade_out, keep_clip_audio, clip_audio_volume, duck, normalize=true (-14 LUFS)}",
             "sfx[]": "{kind | file, at, volume=0.8, dur}",
         },
@@ -252,31 +255,45 @@ _CALLS: dict[tuple[str, str], int] = {}
 LIMITS = {"analyze_video": 2, "verify_cuts": 1, "reference_breakdown": 2}
 
 
-def _budget(tool: str, path: str) -> dict | None:
-    """Hard cap on repeated checks of the same file, so a doubt can never become a loop."""
-    key = (tool, str(Path(path).expanduser()))
+def _budget(tool: str, path: str, force: bool = False) -> dict | None:
+    """Hard cap on repeated checks of the same file, so a doubt can never become a loop.
+    The file's size and change time are part of the key: a file that was rendered again counts
+    as a new file. force=True (the user asked for a new measurement) skips the cap."""
+    f = Path(path).expanduser()
+    try:
+        st = f.stat()
+        stamp = (st.st_size, int(st.st_mtime))
+    except OSError:
+        stamp = None
+    key = (tool, str(f), stamp)
     _CALLS[key] = _CALLS.get(key, 0) + 1
-    if _CALLS[key] > LIMITS[tool]:
+    if _CALLS[key] > LIMITS[tool] and not force:
         return {"limit_reached": True,
-                "message": f"{tool} already ran {LIMITS[tool]}x on this file in this chat. Use the "
-                           "earlier result as final; do not check it again. Tell the user any doubt."}
+                "message": f"{tool} already ran {LIMITS[tool]}x on this file (unchanged) in this chat. Use the "
+                           "earlier result as final; do not check it again. Tell the user any doubt. "
+                           "Only when the USER asks for a new measurement: force=true."}
     return None
 
 
 @mcp.tool()
 def analyze_video(path: str, project: str | None = None, max_fps: float = 30.0,
-                  sensitivity: str = "normal") -> dict:
+                  sensitivity: str = "normal", summary_only: bool = False, force: bool = False) -> dict:
     """Measure a video's edit language: cut times (+ confidence 0..1), shots (length, camera
     move, shake), flashes, activity per second, and music beats when it has audio.
     The cut detector is measured and usually right: do NOT overrule it from guesses. If you doubt
     some cuts, call verify_cuts ONCE and look; only then you may re-run with sensitivity
-    'low' (fewer cuts) or 'high' (more cuts). Max 2 runs per file per chat."""
+    'low' (fewer cuts) or 'high' (more cuts). Max 2 runs per file per chat (a changed file counts
+    as new; force=true only when the user asks to measure again). summary_only=true returns the
+    summary, cut times and bpm only (few tokens; the full result is in saved_json)."""
     if sensitivity not in analyze.SENSITIVITY:
         raise ValueError(f"sensitivity must be one of {list(analyze.SENSITIVITY)}")
-    if (stop := _budget("analyze_video", path)):
+    if (stop := _budget("analyze_video", path, force)):
         return stop
     r = analyze.analyze_video(_abs(path), max_fps=max_fps, sensitivity=sensitivity)
     saved = _save(_project(project), f"analysis_{Path(path).stem}", r)
+    if summary_only:
+        return {"summary": r["summary"], "cuts": r["cuts"], "flashes": r["flashes"], "file": r["file"],
+                "bpm": (r.get("audio") or {}).get("bpm"), "saved_json": saved}
     reply = {k: r[k] for k in ("summary", "cuts", "cut_confidence", "flashes", "shots")}
     reply["file"] = r["file"]
     reply["per_second"] = r["per_second"][:120]
@@ -496,12 +513,18 @@ def _add_version(edl: dict, preview: bool, note: str, project: str | None) -> in
 
 
 def render_edl(edl: dict | None = None, edl_path: str | None = None, preview: bool = True,
-               note: str = "", project: str | None = None) -> dict:
+               note: str = "", project: str | None = None, timecode: bool = False) -> dict:
     """Render an edit decision list (see capabilities for the format). Give `edl` inline or an
     `edl_path`. preview=true renders at half size quickly; check it with view_frames, then render
     with preview=false. Clip segments are cached, so small changes render fast. Every render is
     saved as a numbered version of its output (note: what changed, e.g. "faster cuts"); see
-    edl_versions / restore_version to compare or go back."""
+    edl_versions / restore_version to compare or go back.
+    The result's `timeline` gives the REAL output start/end of every clip (a transition overlaps
+    two clips, so later clips start earlier than the sum of the lengths): take the times for
+    texts, overlays and sfx from it. timecode=true writes the output time on the picture (use it
+    on previews to name exact moments). Layers, bottom to top: clips (with their effects and
+    grade) -> global_effects -> overlays (in list order) -> texts with behind_subject -> the
+    subject -> all other texts (so captions are always above a B-roll overlay)."""
     if edl is None:
         if not edl_path:
             raise ValueError("Give edl or edl_path.")
@@ -509,6 +532,8 @@ def render_edl(edl: dict | None = None, edl_path: str | None = None, preview: bo
     proj = _project(project)
     saved = edl_path or _save(proj, "edl", edl)
     snapshot = json.loads(json.dumps(edl))  # render() fills in defaults; keep what was asked
+    if timecode:
+        edl = {**edl, "output": {**(edl.get("output") or {}), "timecode": True}}
     r = render.render(edl, proj / "work", preview=preview)
     r["edl_path"] = saved
     r["version"] = _add_version(snapshot, preview, note, project)
@@ -585,16 +610,25 @@ def make_shorts(path: str, shorts_list: list[dict], output_dir: str, transcript_
 
 @mcp.tool()
 def subject_cutout(path: str, output_path: str, background: str = "transparent", model: str = "u2net",
-                   start: float = 0.0, duration: float | None = None) -> dict:
+                   start: float = 0.0, duration: float | None = None, clean_edges: bool = True,
+                   every: int | None = None, keep: list[list[float]] | None = None,
+                   remove: list[list[float]] | None = None) -> dict:
     """Cut the main subject (person, animal, car, product) out of a clip with a local AI model.
     background: "transparent" (ProRes 4444 .mov with alpha - put it in `overlays`, e.g. over
     another clip), "blur", a colour ("#101010", "white") or an image/video file (new background).
-    model: u2net (any subject), u2net_human_seg (people), silueta (faster). The model is
-    downloaded once (43-176 MB). For text behind the subject use texts[].behind_subject instead."""
+    model: birefnet_lite (BEST edges: hair, scarf, fingers; use it for a talking person on a new
+    background; slow on a CPU), u2net (any subject, fast, soft edges), u2net_human_seg (people),
+    silueta (fastest), or the path of an .onnx file. Downloaded once (43-214 MB; GitHub, then
+    Hugging Face). clean_edges: removes the old background's colour from soft edges (no bright halo).
+    every: run the model on every Nth frame and fit the frames between to the picture (default: 3
+    for birefnet_lite on a CPU, else 1). keep / remove: boxes [x0, y0, x1, y1] as 0..1 of the frame
+    that always stay (e.g. a desk in front of the speaker: [[0, 0.78, 1, 1]]) or always go.
+    For text behind the subject use texts[].behind_subject instead."""
     from . import subject
     bg = background if background in ("transparent", "blur") or not Path(background).expanduser().exists() \
         else _abs(background)
-    return subject.cutout(_abs(path), str(Path(output_path).expanduser().resolve()), bg, model, start, duration)
+    return subject.cutout(_abs(path), str(Path(output_path).expanduser().resolve()), bg, model, start, duration,
+                          clean_edges, every, keep, remove)
 
 
 @mcp.tool()
@@ -606,8 +640,29 @@ def quality_check(path: str) -> dict:
 @mcp.tool()
 def speech_segments(path: str, noise_db: float = -35.0, min_silence: float = 0.35) -> dict:
     """Find the parts with speech/sound so you can cut out the pauses (jump cuts). Use each
-    `keep` pair as one clip {src, in, out} in an EDL."""
+    `keep` pair as one clip {src, in, out} in an EDL. For cuts chosen from a transcript, pass
+    your in/out pairs through snap_cuts."""
     return qa.speech_segments(_abs(path), noise_db, min_silence)
+
+
+@mcp.tool()
+def clean_voice(path: str, output_path: str, denoise: float = 12.0, target_lufs: float = -14.0) -> dict:
+    """Clean and master a talking-head recording BEFORE editing: removes rumble and steady room
+    noise, adds a little presence and gentle compression, and sets the loudness (-14 LUFS for
+    social platforms). The picture is copied as it is. Returns the loudness and how far the speech
+    is above the room noise, before and after. denoise: noise reduction in dB (0 = off; 12 is safe; above 20 can sound watery).
+    Use the output file as the clip source and for transcribe."""
+    return qa.clean_voice(_abs(path), str(Path(output_path).expanduser().resolve()), denoise, target_lufs)
+
+
+@mcp.tool()
+def snap_cuts(path: str, keep: list[list[float]], window: float = 0.35) -> dict:
+    """Move cut points to the real pauses in the sound. ALWAYS use it when clip in/out times come
+    from transcript word times (they are loose: the first sound of the next sentence stays in the
+    clip): keep = [[in, out], ...] -> `keep` with every in just before the speech starts and
+    every out just after it ends. `inside_speech` lists boundaries with no pause within `window`
+    seconds: choose another sentence end there, or accept a hard jump."""
+    return qa.snap_cuts(_abs(path), keep, window)
 
 
 @mcp.tool()
@@ -896,7 +951,10 @@ def _config_files() -> list[Path]:
 
 def register() -> list[str]:
     """Add this Python as the `blade-editor` MCP server, without the `claude` command."""
-    entry = {"type": "stdio", "command": sys.executable, "args": ["-m", "blade_editor.server"], "env": {}}
+    # PYTHONUTF8: on Windows, Python then reads and prints UTF-8 everywhere (Persian text on the
+    # console gave "UnicodeEncodeError (cp1252)").
+    entry = {"type": "stdio", "command": sys.executable, "args": ["-m", "blade_editor.server"],
+             "env": {"PYTHONUTF8": "1"}}
     done = []
     for f in _config_files():
         data = {}
@@ -914,7 +972,7 @@ def register() -> list[str]:
 
 def main() -> None:
     if "--version" in sys.argv:
-        print(__version__)
+        print(f"{__version__} (build {__build__}, Python {sys.version.split()[0]})")
         return
     if "--register" in sys.argv:
         for f in register():

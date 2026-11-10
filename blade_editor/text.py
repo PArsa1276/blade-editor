@@ -51,8 +51,16 @@ def _ts(t: float) -> str:
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
+_RLM = "\u200f"
+
+
 def _esc(text: str) -> str:
-    return text.replace("\\", "\\\\").replace("{", "(").replace("}", ")").replace("\n", "\\N")
+    text = text.replace("\\", "\\\\").replace("{", "(").replace("}", ")")
+    if _RTL.search(text):
+        # A comma or full stop at the end of a Persian/Arabic line was drawn at the wrong (right)
+        # side: a right-to-left mark on both sides of every line keeps it at the left end.
+        text = "\n".join(f"{_RLM}{ln}{_RLM}" if _RTL.search(ln) else ln for ln in text.split("\n"))
+    return text.replace("\n", "\\N")
 
 
 def build_ass(items: list[dict], width: int, height: int) -> str:

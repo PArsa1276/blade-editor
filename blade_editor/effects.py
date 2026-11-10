@@ -51,8 +51,10 @@ GRADES = {
 }
 
 EFFECT_DOCS = {
-    "zoom_punch": "Fast zoom in, then ease back. Keys: at, dur(0.25), amount(0.15).",
-    "zoom": "Slow push in or out over a window. Keys: at(0), dur(clip length), from(1.0), to(1.15).",
+    "zoom_punch": "Fast zoom in, then ease back. Keys: at, dur(0.25), amount(0.15), anchor([0.5,0.5]).",
+    "zoom": "Slow push in or out over a window. Keys: at(0), dur(clip length), from(1.0), to(1.15), "
+            "anchor([x,y] 0..1: the point the zoom goes to, e.g. a face at [0.5,0.3]; default the centre; "
+            "one anchor per clip).",
     "shake": "Camera shake. Keys: at, dur(0.4), amount(px at 1080p, 18), freq(28).",
     "flash": "Brightness flash. Keys: at, dur(0.15), amount(0.8), color('white'|'black').",
     "rgb_split": "Chromatic split. Keys: at, dur(0.2), amount(px, 10).",
@@ -100,6 +102,9 @@ def motion_chain(effects: list[dict], width: int, height: int, span: float) -> l
             sy_terms.append(f"{amt * 0.8:.2f}*{env}*sin(t*{fq * 1.37:.2f}*6.2832+{ph * 2.1:.2f})")
     if not (zoom_terms or sx_terms):
         return []
+    # The point that stays in place while the picture grows (default: the centre).
+    anchor = next((e["anchor"] for e in effects if e.get("type") in ("zoom", "zoom_punch") and e.get("anchor")), None)
+    ax, ay = (min(1.0, max(0.0, float(v))) for v in (anchor or (0.5, 0.5)))
     shake_max = 0.0
     for e in effects:
         if e.get("type") == "shake":
@@ -110,7 +115,8 @@ def motion_chain(effects: list[dict], width: int, height: int, span: float) -> l
     sy = "+".join(sy_terms) or "0"
     return [
         f"scale=w='trunc({width}*{z}/2)*2+2':h='trunc({height}*{z}/2)*2+2':eval=frame:flags=bicubic",
-        f"crop=w={width}:h={height}:x='(iw-{width})/2+{sx}':y='(ih-{height})/2+{sy}'",
+        f"crop=w={width}:h={height}:x='clip((iw-{width})*{ax:.4f}+{sx},0,iw-{width})':"
+        f"y='clip((ih-{height})*{ay:.4f}+{sy},0,ih-{height})'",
         "setsar=1",
     ]
 

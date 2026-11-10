@@ -1,5 +1,6 @@
 """End-to-end smoke tests on synthetic media (needs ffmpeg)."""
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -201,7 +202,8 @@ def test_rtl_karaoke_runs_in_visual_order():
     words = [{"word": w, "start": i * 0.5, "end": i * 0.5 + 0.5} for i, w in enumerate("یک دو سه".split())]
     raw = [i["_raw"] for i in text.captions_to_items([{"start": 0, "end": 1.5, "text": "", "words": words}])]
     # libass puts colour runs left to right, so for Persian the later words come first.
-    assert raw[1] == "{\\fsp0}سه {\\1c&H00E6FF&}دو{\\1c&HFFFFFF&} یک"
+    r = "\u200f"  # every word carries right-to-left marks (line-end punctuation stays at the left)
+    assert raw[1] == "{\\fsp0}" + f"{r}سه{r} " + "{\\1c&H00E6FF&}" + f"{r}دو{r}" + "{\\1c&HFFFFFF&}" + f" {r}یک{r}"
 
 
 def test_transcript_fix_and_jump_cut_remap(tmp_path):
@@ -855,3 +857,230 @@ def test_omni_12_flash_makes_15_s_clips(tmp_path):
     calls = {m: remake.plan(str(tmp_path / "long.mp4"), tmp_path / "w", m)["flow_calls"]
              for m in ("omni-1.2-flash", "omni-1.1-flash")}
     assert calls == {"omni-1.2-flash": 1, "omni-1.1-flash": 2}, calls
+
+
+def test_flow_clip_made_but_not_downloaded_is_not_an_error(tmp_path, monkeypatch):
+    # Real case: the clip was made (credits spent), the download failed with "Failed to fetch" and
+    # the whole tool returned an error. Now: a clear status, the job is kept, no second generation.
+    import asyncio
+    import time
+    from blade_editor import flow
+    monkeypatch.setattr(flow, "PENDING", tmp_path / "pending.json")
+
+    class D:
+        name, dialog_text, fail = "fake", None, True
+
+        async def dialog(self): return False
+        async def blocking(self): return self.dialog_text
+        async def media(self): return {"clipA": {"is_video": True, "url": ""}}
+        async def shot(self): return None
+        async def wait(self, s): pass
+
+        async def download(self, key, info, out):
+            if self.fail:
+                raise RuntimeError("Failed to fetch")
+            out.write_bytes(b"x")
+            return True
+
+    d = D()
+    job = {"started": time.time(), "prompt": "p", "before": [], "out_dir": str(tmp_path)}
+    flow._set_pending(job)
+    r = asyncio.run(flow._wait_new(d, job, 0, 0))
+    assert r["status"] == "submitted_not_downloaded" and r["credits_spent"] and r["clips"] == ["clipA"]
+    assert "Failed to fetch" in r["download_error"] and flow._pending() is not None
+    d.fail = False  # e.g. after the extension was reloaded: flow_collect gets the same clip
+    r = asyncio.run(flow._wait_new(d, job, 0, 0))
+    assert r["status"] == "done" and len(r["files"]) == 1 and flow._pending() is None
+    d.dialog_text = "Move collection to trash?"
+    with pytest.raises(RuntimeError, match="does not click dialogs"):
+        asyncio.run(flow._no_dialog(d))
+
+
+def test_flow_extension_clicks_only_the_send_button():
+    # extension/bridge.js in a real browser page with a fake Flow page (tests/extension_test.js).
+    import shutil
+    node = shutil.which("node")
+    if not node or subprocess.run([node, "-e", "require('playwright')"], capture_output=True).returncode:
+        pytest.skip("needs node + playwright")
+    r = subprocess.run([node, str(Path(__file__).with_name("extension_test.js"))], capture_output=True, text=True)
+    assert r.returncode == 0 and "OK" in r.stdout, r.stderr
+
+
+def test_subject_model_download_tries_the_mirror_and_checks_the_size(tmp_path, monkeypatch):
+    # Real case: github.com answered 504 and no subject model could be downloaded.
+    import io
+    import urllib.request
+    from blade_editor import subject
+    monkeypatch.setitem(subject.MODELS, "tiny", ("tiny.onnx", 5, ["https://github.com/x/tiny.onnx",
+                                                                  "https://huggingface.co/x/tiny.onnx"], 320, "test"))
+    asked = []
+
+    def fake(req, timeout=0):
+        asked.append(req.full_url)
+        if "github" in req.full_url:
+            raise OSError("HTTP Error 504: Gateway Time-out")
+        return io.BytesIO(b"12345")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    subject._download("tiny", tmp_path / "tiny.onnx")
+    assert (tmp_path / "tiny.onnx").read_bytes() == b"12345" and len(asked) == 2
+    monkeypatch.setitem(subject.MODELS, "tiny", ("tiny.onnx", 9, ["https://huggingface.co/x/tiny.onnx"], 320, "test"))
+    with pytest.raises(RuntimeError, match="by hand"):  # a cut-off download is not kept
+        subject._download("tiny", tmp_path / "t2.onnx")
+    assert not (tmp_path / "t2.onnx").exists() and not (tmp_path / "t2.part").exists()
+    (tmp_path / "my_birefnet.onnx").write_bytes(b"x")
+    assert subject._resolve(str(tmp_path / "my_birefnet.onnx"))[2] == 1024  # the user's own model file
+    assert "birefnet_lite" in subject.MODELS
+
+
+def test_subject_edges_keep_regions_and_key_frames(tmp_path, monkeypatch):
+    from blade_editor import subject
+    # 1) Edge colour: a red subject on a green wall. The soft edge holds green; after cleaning it is red.
+    h, w = 80, 120
+    alpha = np.zeros((h, w), np.float32)
+    alpha[:, :50] = 1.0
+    alpha[:, 50:60] = np.linspace(1, 0, 10)[None, :]
+    rgb = np.zeros((h, w, 3), np.uint8)
+    rgb[:, :50] = (200, 30, 30)
+    rgb[:, 50:] = (30, 200, 30)  # the wall's colour is inside the soft edge
+    clean = subject.decontaminate(rgb, alpha, 4.0)
+    edge = (slice(None), slice(52, 58))
+    assert rgb[edge][..., 1].mean() > 150 and clean[edge][..., 1].mean() < 60 and clean[edge][..., 0].mean() > 150
+    assert (clean[:, :45] == rgb[:, :45]).all()  # the solid subject is not changed
+    # 2) The guided filter keeps a mask that already fits the picture (it only moves edges onto
+    # picture edges; on real footage it raised the IoU of in-between frames from 0.944 to 0.959).
+    pic = np.zeros((h, w, 3), np.uint8)
+    pic[:, :60] = 220
+    truth = (pic[..., 0] > 100).astype(np.float32)
+    assert np.abs(subject.refine(truth, pic, r=6) - truth).mean() < 0.02
+    # 3) keep / remove boxes and "every": the model runs on every 3rd frame only.
+    _ff("-f", "lavfi", "-i", "testsrc2=s=160x120:r=10:d=1", "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "s.mp4"))
+    calls = []
+
+    def fake_mask(fr, model="u2net"):
+        calls.append(1)
+        m = np.zeros(fr.shape[:2], np.float32)
+        m[:, :fr.shape[1] // 2] = 1.0
+        return m
+
+    monkeypatch.setattr(subject, "mask_frame", fake_mask)
+    out = subject.mask_video(str(tmp_path / "s.mp4"), str(tmp_path / "m.mkv"), 160, 120, 10, None, "u2net",
+                             feather=0, every=3, keep=[[0, 0.8, 1, 1]], remove=[[0, 0, 0.2, 0.2]])
+    assert len(calls) == 4  # frames 0, 3, 6, 9 of 10
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", out, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                         capture_output=True).stdout
+    m = np.frombuffer(raw, np.uint8).reshape(-1, 120, 160)
+    assert len(m) == 10
+    for k in (0, 4, 9):  # a key frame and frames between
+        assert m[k][60, 20] > 200 and m[k][60, 140] < 50   # subject left, background right
+        assert m[k][110, 140] > 200                        # the kept desk region (bottom)
+        assert m[k][10, 10] < 50                           # the removed box (top left)
+
+
+def test_cut_points_move_to_the_real_pause(tmp_path):
+    # Whisper word times are loose: a sentence "ends" 0.25 s into the next one. Speech (noise bursts)
+    # at 0.5-2.0, 2.6-4.0 and 4.3-5.5 s over quiet room noise.
+    from blade_editor import qa
+    gate = "between(t,0.5,2.0)+between(t,2.6,4.0)+between(t,4.3,5.5)"
+    _ff("-f", "lavfi", "-i", "anoisesrc=d=6:c=pink:r=16000:a=0.5", "-f", "lavfi", "-i", "anoisesrc=d=6:c=white:r=16000:a=0.002",
+        "-filter_complex", f"[0:a]volume='{gate}':eval=frame[s];[s][1:a]amix=inputs=2:normalize=0", str(tmp_path / "talk.wav"))
+    r = qa.snap_cuts(str(tmp_path / "talk.wav"), [[0.62, 2.25], [2.45, 3.8]])
+    (a0, b0), (a1, b1) = r["keep"]
+    assert 0.4 <= a0 <= 0.5 and 2.0 <= b0 <= 2.1, r      # the first sentence, without the start of the next
+    assert 2.5 <= a1 <= 2.6 and 4.0 <= b1 <= 4.1, r      # the out moved 0.27 s later, to the end of the speech
+    assert r["ok"]
+    bad = qa.snap_cuts(str(tmp_path / "talk.wav"), [[1.0, 1.4]], window=0.2)  # both inside speech
+    assert not bad["ok"] and len(bad["inside_speech"]) == 2
+
+
+def test_persian_line_end_punctuation_stays_at_the_left(media, tmp_path):
+    # "سلام دوستان عزیز،": the comma was drawn at the right (before the first word).
+    from blade_editor import text
+    assert text._esc("سلام،\nhello") == "‏سلام،‏\\Nhello"
+    _ff("-f", "lavfi", "-i", "color=c=black:s=540x200:d=1:r=10", "-c:v", "libx264", str(tmp_path / "bg.mp4"))
+    cols = {}
+    for name, txt in (("comma", "سلام دوستان عزیز،"), ("none", "سلام دوستان عزیز")):
+        edl = {"output": {"path": str(tmp_path / f"{name}.mp4"), "width": 540, "height": 200, "fps": 10},
+               "clips": [{"src": str(tmp_path / "bg.mp4"), "in": 0, "out": 1}],
+               "texts": [{"text": txt, "start": 0, "end": 1, "style": "subtitle", "pos": "center", "anim": "none",
+                          "size": 110}]}
+        render.render(edl, tmp_path / f"w_{name}")
+        fr, _ = ff.read_gray_frames(str(tmp_path / f"{name}.mp4"), width=540)
+        cols[name] = (fr[5].max(axis=0) > 80).astype(np.float32)
+    # The line is centred. A comma at the LEFT end moves the words to the right (and the reverse).
+    shift = max(range(-20, 21), key=lambda d: float((np.roll(cols["none"], d) * cols["comma"]).sum()))
+    assert shift >= 2, shift
+
+
+def test_overlay_blend_fade_zoom_anchor_timecode_and_size_note(media, tmp_path):
+    # Overlay "screen": a white square on BLACK. The black part must not darken the picture;
+    # fade_out makes it weaker at the end. Zoom with an anchor keeps that corner in place.
+    _ff("-f", "lavfi", "-i", "color=c=0x404040:s=360x640:d=3:r=30", "-c:v", "libx264", "-preset", "ultrafast",
+        str(tmp_path / "grey.mp4"))
+    _ff("-f", "lavfi", "-i", "color=c=black:s=200x200", "-vf", "drawbox=x=60:y=60:w=80:h=80:color=white:t=fill",
+        "-frames:v", "1", str(tmp_path / "card.png"))
+    edl = {"output": {"path": str(tmp_path / "o.mp4"), "width": 360, "height": 640, "fps": 30},
+           "clips": [{"src": str(tmp_path / "grey.mp4"), "in": 0, "out": 3}],
+           "overlays": [{"src": str(tmp_path / "card.png"), "start": 0.5, "end": 2.5, "x": 0.5, "y": 0.5,
+                         "width": 0.5, "blend": "screen", "fade_in": 0, "fade_out": 1.0}]}
+    r = render.render(json.loads(json.dumps(edl)), tmp_path / "w")
+    assert "size_note" not in r and r["timeline"][0]["end"] == 3.0
+    fr, fps = ff.read_gray_frames(r["output"], width=360)
+    at = lambda t, y, x: int(fr[int(t * fps)][y, x])  # noqa: E731
+    assert abs(at(0.2, 320, 180) - 64) < 12                      # before the overlay: the grey clip
+    assert at(1.0, 320, 180) > 200                               # the white square
+    assert abs(at(1.0, 320 - 70, 180 - 70) - 64) < 12            # the card's black part: unchanged picture
+    assert 80 < at(2.2, 320, 180) < at(1.0, 320, 180) - 30       # fading out
+    assert abs(at(2.8, 320, 180) - 64) < 12                      # after the end
+    with pytest.raises(ValueError, match="blend"):
+        render.render({**edl, "overlays": [dict(edl["overlays"][0], blend="multiply")]}, tmp_path / "w2")
+    # Zoom anchor: a picture with a white square in the top-left corner; zoom 2x to [0, 0] keeps it there.
+    _ff("-f", "lavfi", "-i", "color=c=black:s=360x640:d=1:r=30", "-vf", "drawbox=x=0:y=0:w=60:h=60:color=white:t=fill",
+        "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "corner.mp4"))
+    for anchor, lit in (([0.0, 0.0], True), (None, False)):
+        fx = {"type": "zoom", "from": 2.0, "to": 2.0}
+        if anchor:
+            fx["anchor"] = anchor
+        e2 = {"output": {"path": str(tmp_path / "z.mp4"), "width": 360, "height": 640, "fps": 30, "timecode": True},
+              "clips": [{"src": str(tmp_path / "corner.mp4"), "in": 0, "out": 1, "effects": [fx]}]}
+        render.render(e2, tmp_path / "w3")
+        z, _ = ff.read_gray_frames(str(tmp_path / "z.mp4"), width=360)
+        assert (z[15][80:110, 80:110].mean() > 200) == lit, anchor  # (centre zoom pushes the corner out of the frame)
+    assert z[15][10:40, 5:150].max() > 150  # the timecode is written at the top left
+
+
+def test_version_build_and_analysis_budget(media, tmp_path):
+    import re
+    import blade_editor
+    from blade_editor import server
+    toml = (Path(__file__).parent.parent / "pyproject.toml").read_text()
+    assert re.search(r'^version = "(.+)"', toml, re.M).group(1) == blade_editor.__version__
+    assert server.start_here()["build"] == blade_editor.__build__
+    # The installer must not take the newest Python (3.14 has no GPU packages yet).
+    ps1 = (Path(__file__).parent.parent / "install.ps1").read_text()
+    assert "py -3 " not in ps1 and '"3.12", "3.11"' in ps1
+    # Budget: 2 runs per unchanged file; a changed file is a new file; force skips the cap.
+    f = tmp_path / "v.mp4"
+    f.write_bytes((media / "src.mp4").read_bytes())
+    server._CALLS.clear()
+    assert server._budget("analyze_video", str(f)) is None and server._budget("analyze_video", str(f)) is None
+    assert server._budget("analyze_video", str(f))["limit_reached"]
+    assert server._budget("analyze_video", str(f), force=True) is None
+    f.write_bytes(f.read_bytes() + b"x")  # rendered again
+    assert server._budget("analyze_video", str(f)) is None
+    r = server.analyze_video(str(media / "src.mp4"), project="t_budget", summary_only=True, force=True)
+    assert "per_second" not in r and "shots" not in r and r["summary"]["shot_count"] == 3
+
+
+def test_clean_voice_lowers_noise_and_sets_loudness(tmp_path):
+    # A quiet "voice" (-30 LUFS, like a real recording) over steady room noise.
+    from blade_editor import qa
+    _ff("-f", "lavfi", "-i", "sine=f=220:d=6", "-f", "lavfi", "-i", "anoisesrc=d=6:c=pink:a=0.02",
+        "-f", "lavfi", "-i", "color=c=gray:s=160x90:r=10:d=6",
+        "-filter_complex", "[0:a]volume='0.25*between(mod(t,2),0.3,1.7)':eval=frame[v];[v][1:a]amix=inputs=2:normalize=0[a]",
+        "-map", "2:v", "-map", "[a]", "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "talk.mp4"))
+    r = qa.clean_voice(str(tmp_path / "talk.mp4"), str(tmp_path / "clean.mp4"))
+    assert r["before"]["lufs"] < -24 and abs(r["after"]["lufs"] + 14) < 2.5, r
+    # The speech stands at least 3 dB further above the room noise (measured here: 16 -> 21 dB).
+    assert r["after"]["speech_over_noise_db"] > r["before"]["speech_over_noise_db"] + 3, r
+    assert ff.probe(str(tmp_path / "clean.mp4"))["video"]["width"] == 160

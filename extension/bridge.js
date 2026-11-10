@@ -80,6 +80,21 @@ function waitComplete(tabId) {
   });
 }
 
+// A modal dialog (e.g. "Move collection to trash?") that does not hold the prompt box. While one is
+// open, Blade types nothing and clicks nothing: the user answers it in Chrome.
+function blockingDialog() {
+  const vis = (el) => el && el.offsetParent !== null;
+  const box = [...document.querySelectorAll('[contenteditable="true"], textarea')].find(vis);
+  const d = [...document.querySelectorAll('[role="alertdialog"], [role="dialog"][aria-modal="true"], dialog[open]')]
+    .find(el => vis(el) && !(box && el.contains(box)));
+  return d ? (d.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 160) || 'dialog' : null;
+}
+
+async function refuseIfDialog() {
+  const d = (await inTab(blockingDialog)).find(Boolean);
+  if (d) throw new Error('Flow shows a dialog ("' + d + '"). Blade does not click dialogs: answer or close it in Chrome, then try again.');
+}
+
 async function run(cmd, a) {
   if (cmd === 'hello') return { version: chrome.runtime.getManifest().version };
 
@@ -97,6 +112,7 @@ async function run(cmd, a) {
   if (await findFlowTab() === null) throw new Error('No Flow tab is open in Chrome (open flow.google.com).');
 
   if (cmd === 'type_prompt') {
+    await refuseIfDialog();
     const r = await inTab((text) => {
       const vis = (el) => el && el.offsetParent !== null;
       const box = [...document.querySelectorAll('[contenteditable="true"], textarea')].find(vis);
@@ -157,17 +173,32 @@ async function run(cmd, a) {
   }
 
   if (cmd === 'submit') {
+    // Only the send button that belongs to the prompt box is clicked. Before 1.0.6 the first button
+    // on the page with "create" in its label was clicked: that made an "Untitled collection" and
+    // opened a "Move collection to trash?" dialog.
+    await refuseIfDialog();
     const r = await inTab(() => {
       const vis = (el) => el && el.offsetParent !== null && !el.disabled;
-      const icons = ['arrow_forward', 'send'];
-      const re = /generate|create|send|submit/i;
-      const btn = [...document.querySelectorAll('button')].find(b => vis(b) &&
-        (icons.includes((b.innerText || '').trim()) || re.test(b.getAttribute('aria-label') || '')));
-      if (!btn) return false;
-      btn.click();
-      return true;
+      const box = [...document.querySelectorAll('[contenteditable="true"], textarea')].find(vis);
+      if (!box) return { clicked: false, why: 'no prompt box' };
+      const label = (b) => ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim();
+      const icons = ['arrow_forward', 'arrow_upward', 'send'];
+      const good = /\b(generate|create|send|submit)\b/i;
+      // Never: menus, collections, projects, delete/trash, downloads, sharing, uploads, settings.
+      const bad = /collection|trash|delete|remove|discard|project|folder|more|menu|option|setting|share|download|upload|add|attach|new|close|cancel|back|edit|rename|expand|tune|mode|model/i;
+      const ok = (b) => vis(b) && !b.getAttribute('aria-haspopup') && !bad.test(label(b)) &&
+        (icons.includes((b.innerText || '').trim()) || good.test(b.getAttribute('aria-label') || ''));
+      // Walk up from the prompt box: the nearest container that holds a send button (at most 6 levels).
+      let node = box.parentElement;
+      for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+        const found = [...node.querySelectorAll('button')].filter(ok);
+        if (found.length === 1) { found[0].click(); return { clicked: true, label: label(found[0]).slice(0, 40) }; }
+        if (found.length > 1) return { clicked: false, why: 'more than one possible send button: ' + found.map(b => label(b).slice(0, 30)).join(' | ') };
+      }
+      return { clicked: false, why: 'no send button next to the prompt box' };
     });
-    return { clicked: r.some(Boolean) };
+    const hit = r.find(x => x && x.clicked);
+    return hit || { clicked: false, why: (r.find(x => x && x.why) || {}).why || 'no prompt box' };
   }
 
   if (cmd === 'scan') {
@@ -195,7 +226,7 @@ async function run(cmd, a) {
   if (cmd === 'dialog') {
     const r = await inTab(() => [...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')]
       .some(el => el.offsetParent !== null));
-    return { open: r.some(Boolean) };
+    return { open: r.some(Boolean), blocking: (await inTab(blockingDialog)).find(Boolean) || null };
   }
 
   if (cmd === 'fetch_media') {
@@ -210,11 +241,31 @@ async function run(cmd, a) {
       if (!d) throw new Error('Could not read the blob video.');
       return { type: d.slice(5, d.indexOf(';')), b64: d.split(',', 2)[1] };
     }
-    const resp = await fetch(a.url, { credentials: 'include' });
-    const buf = new Uint8Array(await resp.arrayBuffer());
-    let bin = '';
-    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
-    return { status: resp.status, type: resp.headers.get('content-type') || '', b64: btoa(bin) };
+    // Flow's media address redirects to another Google server (googleusercontent / googleapis):
+    // the extension needs host permission for it (manifest 1.0.6), else "Failed to fetch".
+    let resp, first;
+    try {
+      resp = await fetch(a.url, { credentials: 'include' });
+    } catch (e) { first = String((e && e.message) || e); }
+    if (resp) {
+      const buf = new Uint8Array(await resp.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+      return { status: resp.status, type: resp.headers.get('content-type') || '', b64: btoa(bin) };
+    }
+    // Second way: fetch inside the Flow page itself (its own login and origin).
+    const r = await inTab(async (u) => {
+      try {
+        const res = await fetch(u, { credentials: 'include' });
+        const b = await res.blob();
+        const d = await new Promise(ok => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); });
+        return { status: res.status, type: b.type || '', d };
+      } catch (e) { return { error: String((e && e.message) || e) }; }
+    }, [a.url], 'MAIN');
+    const hit = r.find(x => x && x.d);
+    if (!hit) throw new Error('Could not download the clip (' + first + '; in the page: ' + ((r.find(x => x && x.error) || {}).error || 'no result') +
+                              '). Reload the Blade Bridge extension in chrome://extensions (version 1.0.6 or newer) and call flow_collect again.');
+    return { status: hit.status, type: hit.type, b64: hit.d.split(',', 2)[1] };
   }
 
   if (cmd === 'screenshot') {

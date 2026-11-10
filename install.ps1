@@ -5,15 +5,29 @@ Set-Location $PSScriptRoot
 function Say($t) { Write-Host "`n==> $t" -ForegroundColor Cyan }
 function Refresh-Path { $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User") }
 
-Say "Checking Python (3.10 or newer)"
-$py = Get-Command py -ErrorAction SilentlyContinue
-if (-not $py) {
+Say "Checking Python (3.12 or 3.11)"
+# Python 3.12 (or 3.11) on purpose: `py -3` picks the newest one (3.14), and the GPU packages
+# (onnxruntime-gpu, torch, CTranslate2) have no builds for it yet.
+function Find-Python {
+  $keep = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"  # `py` prints to stderr when a version is missing: not an error here
+  $found = $null
+  foreach ($v in "3.12", "3.11") {
+    & py "-$v" -c "import sys" 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { $found = $v; break }
+  }
+  $ErrorActionPreference = $keep
+  return $found
+}
+$pv = $null
+if (Get-Command py -ErrorAction SilentlyContinue) { $pv = Find-Python }
+if (-not $pv) {
   winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
   Refresh-Path
+  if (Get-Command py -ErrorAction SilentlyContinue) { $pv = Find-Python }
 }
-py -3 -c "import sys; sys.exit(sys.version_info < (3, 10))"
-if ($LASTEXITCODE -ne 0) { Write-Host "Please install Python 3.12 from https://www.python.org/downloads/ (tick 'Add python.exe to PATH') and run this again."; exit 1 }
-Write-Host "OK: $(py -3 --version)"
+if (-not $pv) { Write-Host "Please install Python 3.12 from https://www.python.org/downloads/ (tick 'Add python.exe to PATH') and run this again."; exit 1 }
+Write-Host "OK: $(py "-$pv" --version)"
 
 Say "Checking ffmpeg"
 if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
@@ -24,8 +38,15 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { Write-Host "ffmpe
 Write-Host "OK: ffmpeg found"
 
 Say "Installing Blade Editor into its own folder ($HOME\.blade-editor\venv)"
-py -3 -m venv "$HOME\.blade-editor\venv"
 $spy = "$HOME\.blade-editor\venv\Scripts\python.exe"
+$old = ""
+if (Test-Path $spy) { $old = (& $spy -c "import sys; print('%d.%d' % sys.version_info[:2])") }
+if ($old -and $old -ne $pv) {
+  Write-Host "The old environment uses Python ${old}: building it again with Python ${pv}"
+  py "-$pv" -m venv --clear "$HOME\.blade-editor\venv"
+} else {
+  py "-$pv" -m venv "$HOME\.blade-editor\venv"
+}
 & $spy -m pip install -q --upgrade pip
 & $spy -m pip install -q ".[captions,subject]"
 if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
