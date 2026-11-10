@@ -25,11 +25,33 @@ FLOW_URL = os.environ.get("BLADE_FLOW_URL", "https://labs.google/fx/tools/flow")
 FLOW_MATCH = [FLOW_URL.split("/flow")[0] + "/flow", "https://flow.google.com/", "https://labs.google/fx/tools/flow"]
 MEDIA_RE = re.compile(r"media\.getMediaUrlRedirect\?name=([A-Za-z0-9_-]+)")
 PROMPT_SELECTORS = ['[contenteditable="true"]', "textarea"]
-SUBMIT_SELECTORS = [
-    'button:has(:text-is("arrow_forward"))', 'button:has(:text-is("send"))',
-    'button[aria-label*="generate" i]', 'button[aria-label*="create" i]',
-    'button[aria-label*="send" i]', 'button[aria-label*="submit" i]',
-]
+# The same rules as extension/bridge.js: only the send button next to the prompt box; never a menu,
+# collection, project, delete or upload button; nothing while a modal dialog is open.
+DIALOG_JS = """() => {
+  const vis = (el) => el && el.offsetParent !== null;
+  const box = [...document.querySelectorAll('[contenteditable="true"], textarea')].find(vis);
+  const d = [...document.querySelectorAll('[role="alertdialog"], [role="dialog"][aria-modal="true"], dialog[open]')]
+    .find(el => vis(el) && !(box && el.contains(box)));
+  return d ? (d.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 160) || 'dialog' : null;
+}"""
+SUBMIT_JS = """() => {
+  const vis = (el) => el && el.offsetParent !== null && !el.disabled;
+  const box = [...document.querySelectorAll('[contenteditable="true"], textarea')].find(vis);
+  if (!box) return {clicked: false, why: 'no prompt box'};
+  const label = (b) => ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim();
+  const icons = ['arrow_forward', 'arrow_upward', 'send'];
+  const good = /\\b(generate|create|send|submit)\\b/i;
+  const bad = /collection|trash|delete|remove|discard|project|folder|more|menu|option|setting|share|download|upload|add|attach|new|close|cancel|back|edit|rename|expand|tune|mode|model/i;
+  const ok = (b) => vis(b) && !b.getAttribute('aria-haspopup') && !bad.test(label(b)) &&
+    (icons.includes((b.innerText || '').trim()) || good.test(b.getAttribute('aria-label') || ''));
+  let node = box.parentElement;
+  for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+    const found = [...node.querySelectorAll('button')].filter(ok);
+    if (found.length === 1) { found[0].click(); return {clicked: true}; }
+    if (found.length > 1) return {clicked: false, why: 'more than one possible send button'};
+  }
+  return {clicked: false, why: 'no send button next to the prompt box'};
+}"""
 SCAN_JS = """() => [...document.querySelectorAll('video, img')].map(el => ({
     tag: el.tagName, src: el.currentSrc || el.src || '', poster: el.getAttribute('poster') || '',
     w: el.width || el.clientWidth || 0 }))"""
@@ -65,7 +87,12 @@ def setup_help(port: int = 0) -> dict:
         "steps": [
             "1. One time: install the Blade Bridge extension in your normal Chrome. " + EXTENSION_HELP,
             "2. Be logged in to Google in that Chrome. Blade opens Google Flow in a tab by itself.",
-            "3. The first time, open or create a project in that Flow tab.",
+            "3. The first time, open or create a project in that Flow tab (Blade does not create projects: "
+            "it only types in the prompt box and presses its send button).",
+            "4. For screenshots: click the Blade Bridge icon once while the Flow tab is open (Chrome gives the "
+            "screenshot permission only after that click; it lasts until the tab is closed or reloaded).",
+            "5. After a Blade update: open chrome://extensions and press the reload arrow on Blade Bridge "
+            "(downloads of finished clips need version 1.0.6 or newer).",
         ],
         "fallback": "Without the extension: turn on chrome://inspect/#remote-debugging (Chrome 144+) "
                     "and click Allow when Chrome asks.",
@@ -178,11 +205,12 @@ class _CDP:
         return True
 
     async def submit(self) -> bool:
-        btn = await _first_visible(self.page, SUBMIT_SELECTORS)
-        if btn is None:
-            return False
-        await btn.click()
-        return True
+        r = await self.page.evaluate(SUBMIT_JS)
+        self.why = r.get("why")
+        return bool(r.get("clicked"))
+
+    async def blocking(self) -> str | None:
+        return await self.page.evaluate(DIALOG_JS)
 
     async def media(self) -> dict:
         return await _media(self.page)
@@ -254,7 +282,12 @@ class _Ext:
         return (await self.b.call("type_prompt", text=text))["typed"]
 
     async def submit(self) -> bool:
-        return (await self.b.call("submit"))["clicked"]
+        r = await self.b.call("submit")
+        self.why = r.get("why")
+        return bool(r["clicked"])
+
+    async def blocking(self) -> str | None:
+        return (await self.b.call("dialog")).get("blocking")
 
     async def media(self) -> dict:
         return _index((await self.b.call("scan"))["items"])
@@ -369,14 +402,29 @@ async def _wait_new(d, job: dict, wait: float, poll: float) -> dict:
     """Poll for videos that were not on the page when the job was sent; download them."""
     before, out_dir = set(job["before"]), Path(job["out_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
-    end, files, dialog_seen = time.time() + wait, [], False
+    end, files, dialog_seen, failed = time.time() + wait, [], False, {}
     while True:
         dialog_seen = dialog_seen or await d.dialog()
         new = {k: v for k, v in (await d.media()).items() if k not in before and v["is_video"]}
         for key, info in new.items():
             out = out_dir / f"flow_{re.sub(r'[^A-Za-z0-9]', '', key)[-12:]}_{int(job['started'])}.mp4"
-            if out.exists() or await d.download(key, info, out):
-                files.append(str(out))
+            try:
+                if out.exists() or await d.download(key, info, out):
+                    files.append(str(out))
+                    failed.pop(key, None)
+            except Exception as e:  # the clip exists in Flow (credits are spent): never report this as a failure
+                failed[key] = str(e)[:300]
+        if failed and not files:
+            # Made, but not downloaded. Keep the job: flow_collect can try again (e.g. after the
+            # extension is reloaded), and a second flow_generate_video stays blocked.
+            return {"status": "submitted_not_downloaded", "credits_spent": True, "files": [], "via": d.name,
+                    "clips": sorted(failed), "download_error": next(iter(failed.values())),
+                    "seconds": round(time.time() - job["started"]),
+                    "message": "The clip was MADE in Flow (credits are spent) but the download failed. Do NOT "
+                               "generate it again. Either call flow_collect again (after reloading the Blade "
+                               "Bridge extension in chrome://extensions if it is older than 1.0.6), or ask the "
+                               "user to download the clip in Flow and give you the file path.",
+                    "_screenshot": await d.shot()}
         if files:
             _set_pending(None)
             return {"status": "done", "credits_spent": True, "files": sorted(set(files)), "via": d.name,
@@ -390,6 +438,17 @@ async def _wait_new(d, job: dict, wait: float, poll: float) -> dict:
             + "The clip is still being made. Call flow_collect to wait for it and download it. "
               "Do NOT call flow_generate_video again for this clip: that spends credits twice.",
             "_screenshot": await d.shot()}
+
+
+async def _no_dialog(d) -> None:
+    """Blade never clicks inside a dialog (it could be 'Move to trash' or a credit confirmation)."""
+    try:
+        text = await d.blocking()
+    except Exception:
+        return  # an old extension without this check: its own guards still apply
+    if text:
+        raise RuntimeError(f"Flow shows a dialog: \"{text}\". Blade does not click dialogs. Ask the user to "
+                           "answer or close it in Chrome, then call again. Nothing was typed or sent.")
 
 
 def frame_file(spec: str, out_dir: Path, name: str) -> Path:
@@ -464,6 +523,7 @@ async def generate_video(prompt: str, out_dir: str | Path, confirm: bool = False
             draft.parent.mkdir(parents=True, exist_ok=True)
             draft.write_text(json.dumps({"specs": specs, "time": time.time()}), encoding="utf-8")
         text = ("Generate this video now, with no questions, exactly as described: " + prompt) if direct else prompt
+        await _no_dialog(d)
         if not await d.type(text):
             raise RuntimeError("No prompt box found on the Flow page. Open or create a Flow project "
                                "in the Flow tab.")
@@ -477,8 +537,11 @@ async def generate_video(prompt: str, out_dir: str | Path, confirm: bool = False
                     "message": "The prompt is typed in Flow. Call again with confirm=true to generate "
                                "(this spends your Flow credits).", "_screenshot": await d.shot()}
         before = list(await d.media())
+        await _no_dialog(d)
         if not await d.submit():
-            raise RuntimeError("No generate button found. The Flow page may have changed.")
+            raise RuntimeError(f"No generate button was clicked ({getattr(d, 'why', None) or 'not found'}). Nothing "
+                               "was sent and no credits were spent. Ask the user to press the send button in Flow, "
+                               "then call flow_collect.")
         job = {"started": time.time(), "prompt": prompt, "before": before, "out_dir": str(Path(out_dir))}
         _set_pending(job)  # saved at once: if Blade restarts now, flow_collect still finds the clip
         return await _wait_new(d, job, timeout, poll)
@@ -505,6 +568,7 @@ async def generate_image(prompt: str, out_dir: str | Path, confirm: bool = False
             prompt = ("Use the attached image(s) as reference: keep the same people, faces, clothes, objects, "
                       "place and style. ") + prompt
         text = "Generate an IMAGE now (a still picture, not a video), exactly as described: " + prompt
+        await _no_dialog(d)
         if not await d.type(text):
             raise RuntimeError("No prompt box found on the Flow page. Open or create a Flow project in the Flow tab.")
         if not confirm:
@@ -514,8 +578,10 @@ async def generate_image(prompt: str, out_dir: str | Path, confirm: bool = False
                                "with the project's image model (check in Flow whether it costs credits).",
                     "_screenshot": await d.shot()}
         before = set(await d.img_srcs())
+        await _no_dialog(d)
         if not await d.submit():
-            raise RuntimeError("No generate button found. The Flow page may have changed.")
+            raise RuntimeError(f"No generate button was clicked ({getattr(d, 'why', None) or 'not found'}). Nothing "
+                               "was sent. Ask the user to press the send button in Flow.")
         out_dir.mkdir(parents=True, exist_ok=True)
         start, files, seen = time.time(), [], set()
 
@@ -562,10 +628,18 @@ async def collect(out_dir: str | Path, port: int = 0, limit: int = 4, wait: floa
         out_dir.mkdir(parents=True, exist_ok=True)
         files = []
         vids = [(k, v) for k, v in (await d.media()).items() if v["is_video"]][:limit]
+        errors = {}
         for key, info in vids:
             out = out_dir / f"flow_{re.sub(r'[^A-Za-z0-9]', '', key)[-12:]}.mp4"
-            if out.exists() or await d.download(key, info, out):
-                files.append(str(out))
-        return {"status": "newest", "files": files}
+            try:
+                if out.exists() or await d.download(key, info, out):
+                    files.append(str(out))
+            except Exception as e:
+                errors[key] = str(e)[:300]
+        r = {"status": "newest", "files": files}
+        if errors:
+            r.update(not_downloaded=sorted(errors), download_error=next(iter(errors.values())),
+                     message="Some clips could not be downloaded: ask the user to download them in Flow.")
+        return r
     finally:
         await d.close()

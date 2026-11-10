@@ -855,3 +855,50 @@ def test_omni_12_flash_makes_15_s_clips(tmp_path):
     calls = {m: remake.plan(str(tmp_path / "long.mp4"), tmp_path / "w", m)["flow_calls"]
              for m in ("omni-1.2-flash", "omni-1.1-flash")}
     assert calls == {"omni-1.2-flash": 1, "omni-1.1-flash": 2}, calls
+
+
+def test_flow_clip_made_but_not_downloaded_is_not_an_error(tmp_path, monkeypatch):
+    # Real case: the clip was made (credits spent), the download failed with "Failed to fetch" and
+    # the whole tool returned an error. Now: a clear status, the job is kept, no second generation.
+    import asyncio
+    import time
+    from blade_editor import flow
+    monkeypatch.setattr(flow, "PENDING", tmp_path / "pending.json")
+
+    class D:
+        name, dialog_text, fail = "fake", None, True
+
+        async def dialog(self): return False
+        async def blocking(self): return self.dialog_text
+        async def media(self): return {"clipA": {"is_video": True, "url": ""}}
+        async def shot(self): return None
+        async def wait(self, s): pass
+
+        async def download(self, key, info, out):
+            if self.fail:
+                raise RuntimeError("Failed to fetch")
+            out.write_bytes(b"x")
+            return True
+
+    d = D()
+    job = {"started": time.time(), "prompt": "p", "before": [], "out_dir": str(tmp_path)}
+    flow._set_pending(job)
+    r = asyncio.run(flow._wait_new(d, job, 0, 0))
+    assert r["status"] == "submitted_not_downloaded" and r["credits_spent"] and r["clips"] == ["clipA"]
+    assert "Failed to fetch" in r["download_error"] and flow._pending() is not None
+    d.fail = False  # e.g. after the extension was reloaded: flow_collect gets the same clip
+    r = asyncio.run(flow._wait_new(d, job, 0, 0))
+    assert r["status"] == "done" and len(r["files"]) == 1 and flow._pending() is None
+    d.dialog_text = "Move collection to trash?"
+    with pytest.raises(RuntimeError, match="does not click dialogs"):
+        asyncio.run(flow._no_dialog(d))
+
+
+def test_flow_extension_clicks_only_the_send_button():
+    # extension/bridge.js in a real browser page with a fake Flow page (tests/extension_test.js).
+    import shutil
+    node = shutil.which("node")
+    if not node or subprocess.run([node, "-e", "require('playwright')"], capture_output=True).returncode:
+        pytest.skip("needs node + playwright")
+    r = subprocess.run([node, str(Path(__file__).with_name("extension_test.js"))], capture_output=True, text=True)
+    assert r.returncode == 0 and "OK" in r.stdout, r.stderr
