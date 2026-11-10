@@ -1047,3 +1047,40 @@ def test_overlay_blend_fade_zoom_anchor_timecode_and_size_note(media, tmp_path):
         z, _ = ff.read_gray_frames(str(tmp_path / "z.mp4"), width=360)
         assert (z[15][80:110, 80:110].mean() > 200) == lit, anchor  # (centre zoom pushes the corner out of the frame)
     assert z[15][10:40, 5:150].max() > 150  # the timecode is written at the top left
+
+
+def test_version_build_and_analysis_budget(media, tmp_path):
+    import re
+    import blade_editor
+    from blade_editor import server
+    toml = (Path(__file__).parent.parent / "pyproject.toml").read_text()
+    assert re.search(r'^version = "(.+)"', toml, re.M).group(1) == blade_editor.__version__
+    assert server.start_here()["build"] == blade_editor.__build__
+    # The installer must not take the newest Python (3.14 has no GPU packages yet).
+    ps1 = (Path(__file__).parent.parent / "install.ps1").read_text()
+    assert "py -3 " not in ps1 and '"3.12", "3.11"' in ps1
+    # Budget: 2 runs per unchanged file; a changed file is a new file; force skips the cap.
+    f = tmp_path / "v.mp4"
+    f.write_bytes((media / "src.mp4").read_bytes())
+    server._CALLS.clear()
+    assert server._budget("analyze_video", str(f)) is None and server._budget("analyze_video", str(f)) is None
+    assert server._budget("analyze_video", str(f))["limit_reached"]
+    assert server._budget("analyze_video", str(f), force=True) is None
+    f.write_bytes(f.read_bytes() + b"x")  # rendered again
+    assert server._budget("analyze_video", str(f)) is None
+    r = server.analyze_video(str(media / "src.mp4"), project="t_budget", summary_only=True, force=True)
+    assert "per_second" not in r and "shots" not in r and r["summary"]["shot_count"] == 3
+
+
+def test_clean_voice_lowers_noise_and_sets_loudness(tmp_path):
+    # A quiet "voice" (-30 LUFS, like a real recording) over steady room noise.
+    from blade_editor import qa
+    _ff("-f", "lavfi", "-i", "sine=f=220:d=6", "-f", "lavfi", "-i", "anoisesrc=d=6:c=pink:a=0.02",
+        "-f", "lavfi", "-i", "color=c=gray:s=160x90:r=10:d=6",
+        "-filter_complex", "[0:a]volume='0.25*between(mod(t,2),0.3,1.7)':eval=frame[v];[v][1:a]amix=inputs=2:normalize=0[a]",
+        "-map", "2:v", "-map", "[a]", "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "talk.mp4"))
+    r = qa.clean_voice(str(tmp_path / "talk.mp4"), str(tmp_path / "clean.mp4"))
+    assert r["before"]["lufs"] < -24 and abs(r["after"]["lufs"] + 14) < 2.5, r
+    # The speech stands at least 3 dB further above the room noise (measured here: 16 -> 21 dB).
+    assert r["after"]["speech_over_noise_db"] > r["before"]["speech_over_noise_db"] + 3, r
+    assert ff.probe(str(tmp_path / "clean.mp4"))["video"]["width"] == 160

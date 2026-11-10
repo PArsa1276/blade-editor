@@ -28,7 +28,9 @@ Never deliver half versions. Before any render:
 | A move you design (360 spin with stops, sway, whip, zoom pulse, tilt swing) | `camera_preset` -> `camera` effect |
 | A FAST SPIN noted by the breakdown | `camera_preset spin360_holds` / `tilt_swing` with the angles you see (measured angles are too low) |
 | Long video (podcast, live, vlog) -> several shorts | `transcribe` + `fix_transcript` -> `find_highlights(transcript_path)` -> choose by meaning, write titles -> `make_shorts` |
-| Text behind the person/object, cutout, background blur/replace | `texts[].behind_subject: true` (big bold title wider than the subject); `subject_cutout` |
+| Text behind the person/object, cutout, background blur/replace | `texts[].behind_subject: true` (big bold title wider than the subject); `subject_cutout` (a person on a new background: `model="birefnet_lite"` for clean hair edges; `keep=[[0,0.78,1,1]]` keeps a desk; edges are cleaned of the old wall colour) |
+| Light leak, sparks, a title card made on black | `overlays[]` with `blend: "screen"` (black is invisible), `fade_in`, `fade_out` |
+| Zoom to a face or object | `zoom` / `zoom_punch` with `anchor: [x, y]` |
 | Animated title, name tag, counter, kinetic words, follow/subscribe CTA | `motion_template` (title, lower_third, counter, kinetic_words, cta) -> `overlays`; rules in the `blade-motion` skill |
 | 3D turn, card flip, orbit, perspective, designed titles, shapes, Lottie, kinetic text | `motion_graphic` (Kinetograph; templates in `examples/`) |
 | Impact on a beat | effects `zoom_punch` + `flash` + sfx `hit` on downbeats |
@@ -36,7 +38,7 @@ Never deliver half versions. Before any render:
 | Slow motion in one moment | clip `ramp` |
 | Colour of the reference | `grade` (name or `.cube`) |
 | Glitch / RGB look | effects `glitch`, `rgb_split` |
-| Talking video | `speech_segments` -> jump cuts; captions: `transcribe` -> review + `fix_transcript` -> `make_caption_texts(keep=...)` |
+| Talking video | `clean_voice` first (quiet or noisy sound); `speech_segments` -> jump cuts; sentences chosen from the transcript: ALWAYS pass their in/out through `snap_cuts` (word times are loose); captions: `transcribe` -> review + `fix_transcript` -> `make_caption_texts(keep=...)`. Texts and overlays: take times from `timeline` in the render result |
 | Logo, PiP, emoji sticker | `overlays` |
 | A shot the user does not have | `flow_generate_video` (dry run first; ask before confirm=true) |
 | Checking | preview `view_frames`, final `quality_check` + `compare_videos` |

@@ -16,7 +16,7 @@ import anyio
 from mcp.server.mcpserver import Context, Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, prompts, qa, recipes, remake, render, sfx, shorts, text
+from . import __build__, __version__, analyze, audio, autoedit, camera, captions, effects, ff, flow, motion, prompts, qa, recipes, remake, render, sfx, shorts, text
 
 HOME = Path(os.environ.get("BLADE_HOME", Path.home() / "blade_projects")).expanduser()
 
@@ -168,7 +168,7 @@ def start_here() -> dict:
     if first:
         HOME.mkdir(parents=True, exist_ok=True)
         FIRST_USE_MARK.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
-    return {"first_use": first, "version": __version__,
+    return {"first_use": first, "version": __version__, "build": __build__, "python": sys.version.split()[0],
             "next": ("Ask the user, in their own language, if they want the Blade Editor user guide. "
                      "If yes, call `guide`." if first else
                      "Continue with the user's request. The guide is available with `guide`.")}
@@ -255,31 +255,45 @@ _CALLS: dict[tuple[str, str], int] = {}
 LIMITS = {"analyze_video": 2, "verify_cuts": 1, "reference_breakdown": 2}
 
 
-def _budget(tool: str, path: str) -> dict | None:
-    """Hard cap on repeated checks of the same file, so a doubt can never become a loop."""
-    key = (tool, str(Path(path).expanduser()))
+def _budget(tool: str, path: str, force: bool = False) -> dict | None:
+    """Hard cap on repeated checks of the same file, so a doubt can never become a loop.
+    The file's size and change time are part of the key: a file that was rendered again counts
+    as a new file. force=True (the user asked for a new measurement) skips the cap."""
+    f = Path(path).expanduser()
+    try:
+        st = f.stat()
+        stamp = (st.st_size, int(st.st_mtime))
+    except OSError:
+        stamp = None
+    key = (tool, str(f), stamp)
     _CALLS[key] = _CALLS.get(key, 0) + 1
-    if _CALLS[key] > LIMITS[tool]:
+    if _CALLS[key] > LIMITS[tool] and not force:
         return {"limit_reached": True,
-                "message": f"{tool} already ran {LIMITS[tool]}x on this file in this chat. Use the "
-                           "earlier result as final; do not check it again. Tell the user any doubt."}
+                "message": f"{tool} already ran {LIMITS[tool]}x on this file (unchanged) in this chat. Use the "
+                           "earlier result as final; do not check it again. Tell the user any doubt. "
+                           "Only when the USER asks for a new measurement: force=true."}
     return None
 
 
 @mcp.tool()
 def analyze_video(path: str, project: str | None = None, max_fps: float = 30.0,
-                  sensitivity: str = "normal") -> dict:
+                  sensitivity: str = "normal", summary_only: bool = False, force: bool = False) -> dict:
     """Measure a video's edit language: cut times (+ confidence 0..1), shots (length, camera
     move, shake), flashes, activity per second, and music beats when it has audio.
     The cut detector is measured and usually right: do NOT overrule it from guesses. If you doubt
     some cuts, call verify_cuts ONCE and look; only then you may re-run with sensitivity
-    'low' (fewer cuts) or 'high' (more cuts). Max 2 runs per file per chat."""
+    'low' (fewer cuts) or 'high' (more cuts). Max 2 runs per file per chat (a changed file counts
+    as new; force=true only when the user asks to measure again). summary_only=true returns the
+    summary, cut times and bpm only (few tokens; the full result is in saved_json)."""
     if sensitivity not in analyze.SENSITIVITY:
         raise ValueError(f"sensitivity must be one of {list(analyze.SENSITIVITY)}")
-    if (stop := _budget("analyze_video", path)):
+    if (stop := _budget("analyze_video", path, force)):
         return stop
     r = analyze.analyze_video(_abs(path), max_fps=max_fps, sensitivity=sensitivity)
     saved = _save(_project(project), f"analysis_{Path(path).stem}", r)
+    if summary_only:
+        return {"summary": r["summary"], "cuts": r["cuts"], "flashes": r["flashes"], "file": r["file"],
+                "bpm": (r.get("audio") or {}).get("bpm"), "saved_json": saved}
     reply = {k: r[k] for k in ("summary", "cuts", "cut_confidence", "flashes", "shots")}
     reply["file"] = r["file"]
     reply["per_second"] = r["per_second"][:120]
@@ -632,6 +646,16 @@ def speech_segments(path: str, noise_db: float = -35.0, min_silence: float = 0.3
 
 
 @mcp.tool()
+def clean_voice(path: str, output_path: str, denoise: float = 12.0, target_lufs: float = -14.0) -> dict:
+    """Clean and master a talking-head recording BEFORE editing: removes rumble and steady room
+    noise, adds a little presence and gentle compression, and sets the loudness (-14 LUFS for
+    social platforms). The picture is copied as it is. Returns the loudness and how far the speech
+    is above the room noise, before and after. denoise: noise reduction in dB (0 = off; 12 is safe; above 20 can sound watery).
+    Use the output file as the clip source and for transcribe."""
+    return qa.clean_voice(_abs(path), str(Path(output_path).expanduser().resolve()), denoise, target_lufs)
+
+
+@mcp.tool()
 def snap_cuts(path: str, keep: list[list[float]], window: float = 0.35) -> dict:
     """Move cut points to the real pauses in the sound. ALWAYS use it when clip in/out times come
     from transcript word times (they are loose: the first sound of the next sentence stays in the
@@ -948,7 +972,7 @@ def register() -> list[str]:
 
 def main() -> None:
     if "--version" in sys.argv:
-        print(__version__)
+        print(f"{__version__} (build {__build__}, Python {sys.version.split()[0]})")
         return
     if "--register" in sys.argv:
         for f in register():

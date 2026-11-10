@@ -117,3 +117,12 @@ the terminal (Windows) and then open Claude again:
 Without this, captions are made on the CPU: correct, but slower.
 
 Installation is complete. You never need to do Part 1 again.
+
+**Updating (after you downloaded a new version of Blade):** in the blade-editor folder run only this (small and
+quick; it installs nothing but Blade itself):
+```
+powershell -ExecutionPolicy Bypass -File update.ps1
+```
+(macOS and Linux: `bash update.sh`). Then close and open Claude again, and in Chrome open `chrome://extensions` and
+press the reload arrow on Blade Bridge. To see the version: ask Claude to run `start_here` (it gives the version
+number and the build date).

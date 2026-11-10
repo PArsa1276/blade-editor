@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 import subprocess
 
 from . import ff
@@ -127,3 +128,38 @@ def snap_cuts(path: str, keep: list, window: float = 0.35, min_silence: float = 
     return {"keep": out, "moved": [[round(o[0] - float(k[0]), 3), round(o[1] - float(k[1]), 3)] for o, k in zip(out, keep)],
             "threshold_db": round(thr, 1), "noise_db": round(floor, 1), "speech_db": round(speech, 1),
             "inside_speech": notes, "ok": not notes}
+
+
+def clean_voice(path: str, out: str, denoise: float = 12.0, target_lufs: float = -14.0) -> dict:
+    """Clean and master a voice recording: remove rumble (high-pass 80 Hz), reduce steady room noise
+    (afftdn, `denoise` dB; 0 = off), a little presence, gentle compression, then loudness to
+    `target_lufs` with a -1.5 dB peak limit. The picture is copied without re-encoding."""
+    def measure(p: str) -> dict:
+        import numpy as np
+        log = ff.run(["-i", p, "-vn", "-af", "ebur128=peak=true", "-f", "null", "-"])
+        i = re.findall(r"I:\s+(-?[\d.]+) LUFS", log)
+        y = ff.read_audio_mono(p, sr=16000)
+        n = len(y) // 160
+        db = 10 * np.log10(np.maximum((y[: n * 160].reshape(n, 160) ** 2).mean(axis=1), 1e-10)) if n else np.zeros(1)
+        # How far the speech is above the room noise: loud 10 ms steps against the quietest ones.
+        return {"lufs": float(i[-1]) if i else None,
+                "speech_over_noise_db": round(float(np.percentile(db, 90) - np.percentile(db, 5)), 1)}
+
+    info = ff.probe(path)
+    if not info["audio"]:
+        raise ValueError("The file has no audio.")
+    before = measure(path)
+    chain = ["highpass=f=80"]
+    if denoise > 0:
+        chain.append(f"afftdn=nr={min(40.0, float(denoise)):.1f}:nf=-40:tn=1")
+    chain += ["equalizer=f=3500:t=q:w=1.0:g=2", "acompressor=threshold=-20dB:ratio=3:attack=10:release=150:makeup=2",
+              f"loudnorm=I={float(target_lufs):.1f}:TP=-1.5:LRA=9", "aresample=48000"]
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    video = ["-c:v", "copy"] if info["video"] else ["-vn"]
+    ext = Path(out).suffix.lower()
+    if ext in (".wav", ".flac"):
+        video, acodec = ["-vn"], ([] if ext == ".flac" else ["-c:a", "pcm_s16le"])
+    else:
+        acodec = ["-c:a", "aac", "-b:a", "192k"]
+    ff.run(["-i", path, "-af", ",".join(chain), *video, *acodec, out])
+    return {"output": str(Path(out).resolve()), "before": before, "after": measure(out), "filters": chain}

@@ -85,6 +85,8 @@ Complete beginners: follow [INSTALL.md](INSTALL.md) (English) or [INSTALL_FA.md]
 | `auto_edit` | Beat-synced edit in one call, in a preset style (`hype`, `phonk`, `cinematic`, `smooth`, `glitch`, `velocity`) or in the style of a reference video |
 | `render_edl` | Full control with a JSON edit list; preview at half size first; unchanged clips are cached, so changes render fast |
 | `speech_segments` | Finds the parts with speech for jump cuts (pause removal) |
+| `snap_cuts` | Moves clip in/out times to the real pause in the sound (transcript word times are loose: a cut on them keeps the first sound of the next sentence) |
+| `clean_voice` | Cleans and masters a voice recording before editing: rumble and room noise down, presence, compression, loudness to -14 LUFS; the picture is copied |
 | `find_highlights` -> `make_shorts` | **Long video -> several shorts**: scores the whole video (loudness, movement, dense speech, strong opening lines, full sentences), the AI reads the candidates and picks the best ideas, then each becomes a finished 9:16 short: pauses removed, crop that follows the action, hook title, karaoke captions |
 | `motion_template` | **Professional animated graphics** from 5 templates - title, lower third, counter, kinetic words, call to action - with motion-design rules (enter-hold-exit, spring overshoot, stagger, payoff, safe zones), Persian text, rendered as transparent overlays. The `blade-motion` skill teaches the rules for custom graphics |
 | `subject_cutout` + `texts[].behind_subject` | **Subject separation** with a local AI model (U²-Net): **text behind the person/object** (the trendy title look), or cut the subject out - transparent, blurred background, new colour or a new background image/video |
