@@ -437,7 +437,8 @@ def render(edl: dict, work_dir: str | Path, preview: bool = False) -> dict:
         base = render(base_edl, work, preview=preview)["output"]
         mask = subject.mask_video(base, str(work / ("subject_mask_preview.mkv" if preview else "subject_mask.mkv")),
                                   W, H, out["fps"], [(float(t["start"]), float(t["end"])) for t in behind],
-                                  edl.get("subject_model", "u2net"))
+                                  edl.get("subject_model", "u2net"), keep=edl.get("subject_keep"),
+                                  remove=edl.get("subject_remove"))
         args += ["-i", mask]
         mi = _input_count(args) - 1
         bass = text.write_ass(behind, W, H, work / ("behind_preview.ass" if preview else "behind.ass"))

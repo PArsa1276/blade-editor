@@ -902,3 +902,74 @@ def test_flow_extension_clicks_only_the_send_button():
         pytest.skip("needs node + playwright")
     r = subprocess.run([node, str(Path(__file__).with_name("extension_test.js"))], capture_output=True, text=True)
     assert r.returncode == 0 and "OK" in r.stdout, r.stderr
+
+
+def test_subject_model_download_tries_the_mirror_and_checks_the_size(tmp_path, monkeypatch):
+    # Real case: github.com answered 504 and no subject model could be downloaded.
+    import io
+    import urllib.request
+    from blade_editor import subject
+    monkeypatch.setitem(subject.MODELS, "tiny", ("tiny.onnx", 5, ["https://github.com/x/tiny.onnx",
+                                                                  "https://huggingface.co/x/tiny.onnx"], 320, "test"))
+    asked = []
+
+    def fake(req, timeout=0):
+        asked.append(req.full_url)
+        if "github" in req.full_url:
+            raise OSError("HTTP Error 504: Gateway Time-out")
+        return io.BytesIO(b"12345")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    subject._download("tiny", tmp_path / "tiny.onnx")
+    assert (tmp_path / "tiny.onnx").read_bytes() == b"12345" and len(asked) == 2
+    monkeypatch.setitem(subject.MODELS, "tiny", ("tiny.onnx", 9, ["https://huggingface.co/x/tiny.onnx"], 320, "test"))
+    with pytest.raises(RuntimeError, match="by hand"):  # a cut-off download is not kept
+        subject._download("tiny", tmp_path / "t2.onnx")
+    assert not (tmp_path / "t2.onnx").exists() and not (tmp_path / "t2.part").exists()
+    (tmp_path / "my_birefnet.onnx").write_bytes(b"x")
+    assert subject._resolve(str(tmp_path / "my_birefnet.onnx"))[2] == 1024  # the user's own model file
+    assert "birefnet_lite" in subject.MODELS
+
+
+def test_subject_edges_keep_regions_and_key_frames(tmp_path, monkeypatch):
+    from blade_editor import subject
+    # 1) Edge colour: a red subject on a green wall. The soft edge holds green; after cleaning it is red.
+    h, w = 80, 120
+    alpha = np.zeros((h, w), np.float32)
+    alpha[:, :50] = 1.0
+    alpha[:, 50:60] = np.linspace(1, 0, 10)[None, :]
+    rgb = np.zeros((h, w, 3), np.uint8)
+    rgb[:, :50] = (200, 30, 30)
+    rgb[:, 50:] = (30, 200, 30)  # the wall's colour is inside the soft edge
+    clean = subject.decontaminate(rgb, alpha, 4.0)
+    edge = (slice(None), slice(52, 58))
+    assert rgb[edge][..., 1].mean() > 150 and clean[edge][..., 1].mean() < 60 and clean[edge][..., 0].mean() > 150
+    assert (clean[:, :45] == rgb[:, :45]).all()  # the solid subject is not changed
+    # 2) The guided filter keeps a mask that already fits the picture (it only moves edges onto
+    # picture edges; on real footage it raised the IoU of in-between frames from 0.944 to 0.959).
+    pic = np.zeros((h, w, 3), np.uint8)
+    pic[:, :60] = 220
+    truth = (pic[..., 0] > 100).astype(np.float32)
+    assert np.abs(subject.refine(truth, pic, r=6) - truth).mean() < 0.02
+    # 3) keep / remove boxes and "every": the model runs on every 3rd frame only.
+    _ff("-f", "lavfi", "-i", "testsrc2=s=160x120:r=10:d=1", "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "s.mp4"))
+    calls = []
+
+    def fake_mask(fr, model="u2net"):
+        calls.append(1)
+        m = np.zeros(fr.shape[:2], np.float32)
+        m[:, :fr.shape[1] // 2] = 1.0
+        return m
+
+    monkeypatch.setattr(subject, "mask_frame", fake_mask)
+    out = subject.mask_video(str(tmp_path / "s.mp4"), str(tmp_path / "m.mkv"), 160, 120, 10, None, "u2net",
+                             feather=0, every=3, keep=[[0, 0.8, 1, 1]], remove=[[0, 0, 0.2, 0.2]])
+    assert len(calls) == 4  # frames 0, 3, 6, 9 of 10
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", out, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                         capture_output=True).stdout
+    m = np.frombuffer(raw, np.uint8).reshape(-1, 120, 160)
+    assert len(m) == 10
+    for k in (0, 4, 9):  # a key frame and frames between
+        assert m[k][60, 20] > 200 and m[k][60, 140] < 50   # subject left, background right
+        assert m[k][110, 140] > 200                        # the kept desk region (bottom)
+        assert m[k][10, 10] < 50                           # the removed box (top left)

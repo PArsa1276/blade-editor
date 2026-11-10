@@ -222,7 +222,8 @@ def capabilities() -> dict:
                        "behind_subject=false (true: the text goes BEHIND the person/object in the shot - big "
                        "bold titles wider than the subject look best; the subject is found by a local AI "
                        "model, about 0.1-0.3 s per frame inside the text's time)}. Top-level "
-                       "subject_model: u2net (any subject, default) | u2net_human_seg (people) | silueta (fast)",
+                       "subject_model: u2net (any subject, default) | birefnet_lite (best edges, slower) | u2net_human_seg (people) | silueta (fast); "
+                       "subject_keep / subject_remove: boxes [x0,y0,x1,y1] (0..1) that always stay / go",
             "global_effects[]": "same effect objects, times in output seconds",
             "overlays[]": "{src (png/jpg/video or 'emoji:🔥'), start, end, x, y (0..1 centre), width (fraction of frame), opacity}",
             "audio": "{music, music_start, volume, fade_in, fade_out, keep_clip_audio, clip_audio_volume, duck, normalize=true (-14 LUFS)}",
@@ -585,16 +586,25 @@ def make_shorts(path: str, shorts_list: list[dict], output_dir: str, transcript_
 
 @mcp.tool()
 def subject_cutout(path: str, output_path: str, background: str = "transparent", model: str = "u2net",
-                   start: float = 0.0, duration: float | None = None) -> dict:
+                   start: float = 0.0, duration: float | None = None, clean_edges: bool = True,
+                   every: int | None = None, keep: list[list[float]] | None = None,
+                   remove: list[list[float]] | None = None) -> dict:
     """Cut the main subject (person, animal, car, product) out of a clip with a local AI model.
     background: "transparent" (ProRes 4444 .mov with alpha - put it in `overlays`, e.g. over
     another clip), "blur", a colour ("#101010", "white") or an image/video file (new background).
-    model: u2net (any subject), u2net_human_seg (people), silueta (faster). The model is
-    downloaded once (43-176 MB). For text behind the subject use texts[].behind_subject instead."""
+    model: birefnet_lite (BEST edges: hair, scarf, fingers; use it for a talking person on a new
+    background; slow on a CPU), u2net (any subject, fast, soft edges), u2net_human_seg (people),
+    silueta (fastest), or the path of an .onnx file. Downloaded once (43-214 MB; GitHub, then
+    Hugging Face). clean_edges: removes the old background's colour from soft edges (no bright halo).
+    every: run the model on every Nth frame and fit the frames between to the picture (default: 3
+    for birefnet_lite on a CPU, else 1). keep / remove: boxes [x0, y0, x1, y1] as 0..1 of the frame
+    that always stay (e.g. a desk in front of the speaker: [[0, 0.78, 1, 1]]) or always go.
+    For text behind the subject use texts[].behind_subject instead."""
     from . import subject
     bg = background if background in ("transparent", "blur") or not Path(background).expanduser().exists() \
         else _abs(background)
-    return subject.cutout(_abs(path), str(Path(output_path).expanduser().resolve()), bg, model, start, duration)
+    return subject.cutout(_abs(path), str(Path(output_path).expanduser().resolve()), bg, model, start, duration,
+                          clean_edges, every, keep, remove)
 
 
 @mcp.tool()
