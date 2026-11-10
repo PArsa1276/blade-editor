@@ -210,7 +210,7 @@ def capabilities() -> dict:
         "version": __version__,
         "projects_dir": str(HOME),
         "edl_format": {
-            "output": "{path, width=1080, height=1920, fps=30, fit='cover'|'contain'|'blur', grade, global_grade, crf=18, preset='medium', max_mb}",
+            "output": "{path, width=1080, height=1920, fps=30, fit='cover'|'contain'|'blur', grade, global_grade, crf=20 (lower = better and larger; 18 for an archive master), preset='medium', max_mb (size limit for sharing)}",
             "clips[]": "{src (video, image, or 'color:#RRGGBB'), in, out | duration, speed=1, "
                        "ramp=[[source_seconds, speed], ...] (speed ramp, replaces out/speed), slowmo=auto|flow|blend|none (slowed parts: flow = optical-flow in-between frames, real smooth slow motion, slower render; auto = flow in the final render for speed <= 0.75, blend in previews), stabilize=false, reverse=false, "
                        "fit, focus=[x,y] (0..1 crop centre for cover) or 'auto' (follows motion), mute, volume, "
@@ -225,7 +225,9 @@ def capabilities() -> dict:
                        "subject_model: u2net (any subject, default) | birefnet_lite (best edges, slower) | u2net_human_seg (people) | silueta (fast); "
                        "subject_keep / subject_remove: boxes [x0,y0,x1,y1] (0..1) that always stay / go",
             "global_effects[]": "same effect objects, times in output seconds",
-            "overlays[]": "{src (png/jpg/video or 'emoji:🔥'), start, end, x, y (0..1 centre), width (fraction of frame), opacity}",
+            "overlays[]": "{src (png/jpg/video or 'emoji:🔥'), start, end, x, y (0..1 centre), width (fraction of frame), opacity, "
+                          "fade_in=0.15, fade_out=0 (seconds), blend='normal'|'screen'|'add' (screen/add: black in the overlay is "
+                          "invisible - light leaks, sparks, a title card made on black; no alpha needed)}",
             "audio": "{music, music_start, volume, fade_in, fade_out, keep_clip_audio, clip_audio_volume, duck, normalize=true (-14 LUFS)}",
             "sfx[]": "{kind | file, at, volume=0.8, dur}",
         },
@@ -497,12 +499,18 @@ def _add_version(edl: dict, preview: bool, note: str, project: str | None) -> in
 
 
 def render_edl(edl: dict | None = None, edl_path: str | None = None, preview: bool = True,
-               note: str = "", project: str | None = None) -> dict:
+               note: str = "", project: str | None = None, timecode: bool = False) -> dict:
     """Render an edit decision list (see capabilities for the format). Give `edl` inline or an
     `edl_path`. preview=true renders at half size quickly; check it with view_frames, then render
     with preview=false. Clip segments are cached, so small changes render fast. Every render is
     saved as a numbered version of its output (note: what changed, e.g. "faster cuts"); see
-    edl_versions / restore_version to compare or go back."""
+    edl_versions / restore_version to compare or go back.
+    The result's `timeline` gives the REAL output start/end of every clip (a transition overlaps
+    two clips, so later clips start earlier than the sum of the lengths): take the times for
+    texts, overlays and sfx from it. timecode=true writes the output time on the picture (use it
+    on previews to name exact moments). Layers, bottom to top: clips (with their effects and
+    grade) -> global_effects -> overlays (in list order) -> texts with behind_subject -> the
+    subject -> all other texts (so captions are always above a B-roll overlay)."""
     if edl is None:
         if not edl_path:
             raise ValueError("Give edl or edl_path.")
@@ -510,6 +518,8 @@ def render_edl(edl: dict | None = None, edl_path: str | None = None, preview: bo
     proj = _project(project)
     saved = edl_path or _save(proj, "edl", edl)
     snapshot = json.loads(json.dumps(edl))  # render() fills in defaults; keep what was asked
+    if timecode:
+        edl = {**edl, "output": {**(edl.get("output") or {}), "timecode": True}}
     r = render.render(edl, proj / "work", preview=preview)
     r["edl_path"] = saved
     r["version"] = _add_version(snapshot, preview, note, project)

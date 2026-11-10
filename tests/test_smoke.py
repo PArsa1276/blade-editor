@@ -1,5 +1,6 @@
 """End-to-end smoke tests on synthetic media (needs ffmpeg)."""
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -1009,3 +1010,40 @@ def test_persian_line_end_punctuation_stays_at_the_left(media, tmp_path):
     # The line is centred. A comma at the LEFT end moves the words to the right (and the reverse).
     shift = max(range(-20, 21), key=lambda d: float((np.roll(cols["none"], d) * cols["comma"]).sum()))
     assert shift >= 2, shift
+
+
+def test_overlay_blend_fade_zoom_anchor_timecode_and_size_note(media, tmp_path):
+    # Overlay "screen": a white square on BLACK. The black part must not darken the picture;
+    # fade_out makes it weaker at the end. Zoom with an anchor keeps that corner in place.
+    _ff("-f", "lavfi", "-i", "color=c=0x404040:s=360x640:d=3:r=30", "-c:v", "libx264", "-preset", "ultrafast",
+        str(tmp_path / "grey.mp4"))
+    _ff("-f", "lavfi", "-i", "color=c=black:s=200x200", "-vf", "drawbox=x=60:y=60:w=80:h=80:color=white:t=fill",
+        "-frames:v", "1", str(tmp_path / "card.png"))
+    edl = {"output": {"path": str(tmp_path / "o.mp4"), "width": 360, "height": 640, "fps": 30},
+           "clips": [{"src": str(tmp_path / "grey.mp4"), "in": 0, "out": 3}],
+           "overlays": [{"src": str(tmp_path / "card.png"), "start": 0.5, "end": 2.5, "x": 0.5, "y": 0.5,
+                         "width": 0.5, "blend": "screen", "fade_in": 0, "fade_out": 1.0}]}
+    r = render.render(json.loads(json.dumps(edl)), tmp_path / "w")
+    assert "size_note" not in r and r["timeline"][0]["end"] == 3.0
+    fr, fps = ff.read_gray_frames(r["output"], width=360)
+    at = lambda t, y, x: int(fr[int(t * fps)][y, x])  # noqa: E731
+    assert abs(at(0.2, 320, 180) - 64) < 12                      # before the overlay: the grey clip
+    assert at(1.0, 320, 180) > 200                               # the white square
+    assert abs(at(1.0, 320 - 70, 180 - 70) - 64) < 12            # the card's black part: unchanged picture
+    assert 80 < at(2.2, 320, 180) < at(1.0, 320, 180) - 30       # fading out
+    assert abs(at(2.8, 320, 180) - 64) < 12                      # after the end
+    with pytest.raises(ValueError, match="blend"):
+        render.render({**edl, "overlays": [dict(edl["overlays"][0], blend="multiply")]}, tmp_path / "w2")
+    # Zoom anchor: a picture with a white square in the top-left corner; zoom 2x to [0, 0] keeps it there.
+    _ff("-f", "lavfi", "-i", "color=c=black:s=360x640:d=1:r=30", "-vf", "drawbox=x=0:y=0:w=60:h=60:color=white:t=fill",
+        "-c:v", "libx264", "-preset", "ultrafast", str(tmp_path / "corner.mp4"))
+    for anchor, lit in (([0.0, 0.0], True), (None, False)):
+        fx = {"type": "zoom", "from": 2.0, "to": 2.0}
+        if anchor:
+            fx["anchor"] = anchor
+        e2 = {"output": {"path": str(tmp_path / "z.mp4"), "width": 360, "height": 640, "fps": 30, "timecode": True},
+              "clips": [{"src": str(tmp_path / "corner.mp4"), "in": 0, "out": 1, "effects": [fx]}]}
+        render.render(e2, tmp_path / "w3")
+        z, _ = ff.read_gray_frames(str(tmp_path / "z.mp4"), width=360)
+        assert (z[15][80:110, 80:110].mean() > 200) == lit, anchor  # (centre zoom pushes the corner out of the frame)
+    assert z[15][10:40, 5:150].max() > 150  # the timecode is written at the top left
