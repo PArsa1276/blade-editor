@@ -201,7 +201,8 @@ def test_rtl_karaoke_runs_in_visual_order():
     words = [{"word": w, "start": i * 0.5, "end": i * 0.5 + 0.5} for i, w in enumerate("یک دو سه".split())]
     raw = [i["_raw"] for i in text.captions_to_items([{"start": 0, "end": 1.5, "text": "", "words": words}])]
     # libass puts colour runs left to right, so for Persian the later words come first.
-    assert raw[1] == "{\\fsp0}سه {\\1c&H00E6FF&}دو{\\1c&HFFFFFF&} یک"
+    r = "\u200f"  # every word carries right-to-left marks (line-end punctuation stays at the left)
+    assert raw[1] == "{\\fsp0}" + f"{r}سه{r} " + "{\\1c&H00E6FF&}" + f"{r}دو{r}" + "{\\1c&HFFFFFF&}" + f" {r}یک{r}"
 
 
 def test_transcript_fix_and_jump_cut_remap(tmp_path):
@@ -973,3 +974,38 @@ def test_subject_edges_keep_regions_and_key_frames(tmp_path, monkeypatch):
         assert m[k][60, 20] > 200 and m[k][60, 140] < 50   # subject left, background right
         assert m[k][110, 140] > 200                        # the kept desk region (bottom)
         assert m[k][10, 10] < 50                           # the removed box (top left)
+
+
+def test_cut_points_move_to_the_real_pause(tmp_path):
+    # Whisper word times are loose: a sentence "ends" 0.25 s into the next one. Speech (noise bursts)
+    # at 0.5-2.0, 2.6-4.0 and 4.3-5.5 s over quiet room noise.
+    from blade_editor import qa
+    gate = "between(t,0.5,2.0)+between(t,2.6,4.0)+between(t,4.3,5.5)"
+    _ff("-f", "lavfi", "-i", "anoisesrc=d=6:c=pink:r=16000:a=0.5", "-f", "lavfi", "-i", "anoisesrc=d=6:c=white:r=16000:a=0.002",
+        "-filter_complex", f"[0:a]volume='{gate}':eval=frame[s];[s][1:a]amix=inputs=2:normalize=0", str(tmp_path / "talk.wav"))
+    r = qa.snap_cuts(str(tmp_path / "talk.wav"), [[0.62, 2.25], [2.45, 3.8]])
+    (a0, b0), (a1, b1) = r["keep"]
+    assert 0.4 <= a0 <= 0.5 and 2.0 <= b0 <= 2.1, r      # the first sentence, without the start of the next
+    assert 2.5 <= a1 <= 2.6 and 4.0 <= b1 <= 4.1, r      # the out moved 0.27 s later, to the end of the speech
+    assert r["ok"]
+    bad = qa.snap_cuts(str(tmp_path / "talk.wav"), [[1.0, 1.4]], window=0.2)  # both inside speech
+    assert not bad["ok"] and len(bad["inside_speech"]) == 2
+
+
+def test_persian_line_end_punctuation_stays_at_the_left(media, tmp_path):
+    # "سلام دوستان عزیز،": the comma was drawn at the right (before the first word).
+    from blade_editor import text
+    assert text._esc("سلام،\nhello") == "‏سلام،‏\\Nhello"
+    _ff("-f", "lavfi", "-i", "color=c=black:s=540x200:d=1:r=10", "-c:v", "libx264", str(tmp_path / "bg.mp4"))
+    cols = {}
+    for name, txt in (("comma", "سلام دوستان عزیز،"), ("none", "سلام دوستان عزیز")):
+        edl = {"output": {"path": str(tmp_path / f"{name}.mp4"), "width": 540, "height": 200, "fps": 10},
+               "clips": [{"src": str(tmp_path / "bg.mp4"), "in": 0, "out": 1}],
+               "texts": [{"text": txt, "start": 0, "end": 1, "style": "subtitle", "pos": "center", "anim": "none",
+                          "size": 110}]}
+        render.render(edl, tmp_path / f"w_{name}")
+        fr, _ = ff.read_gray_frames(str(tmp_path / f"{name}.mp4"), width=540)
+        cols[name] = (fr[5].max(axis=0) > 80).astype(np.float32)
+    # The line is centred. A comma at the LEFT end moves the words to the right (and the reverse).
+    shift = max(range(-20, 21), key=lambda d: float((np.roll(cols["none"], d) * cols["comma"]).sum()))
+    assert shift >= 2, shift

@@ -616,8 +616,19 @@ def quality_check(path: str) -> dict:
 @mcp.tool()
 def speech_segments(path: str, noise_db: float = -35.0, min_silence: float = 0.35) -> dict:
     """Find the parts with speech/sound so you can cut out the pauses (jump cuts). Use each
-    `keep` pair as one clip {src, in, out} in an EDL."""
+    `keep` pair as one clip {src, in, out} in an EDL. For cuts chosen from a transcript, pass
+    your in/out pairs through snap_cuts."""
     return qa.speech_segments(_abs(path), noise_db, min_silence)
+
+
+@mcp.tool()
+def snap_cuts(path: str, keep: list[list[float]], window: float = 0.35) -> dict:
+    """Move cut points to the real pauses in the sound. ALWAYS use it when clip in/out times come
+    from transcript word times (they are loose: the first sound of the next sentence stays in the
+    clip): keep = [[in, out], ...] -> `keep` with every in just before the speech starts and
+    every out just after it ends. `inside_speech` lists boundaries with no pause within `window`
+    seconds: choose another sentence end there, or accept a hard jump."""
+    return qa.snap_cuts(_abs(path), keep, window)
 
 
 @mcp.tool()
@@ -906,7 +917,10 @@ def _config_files() -> list[Path]:
 
 def register() -> list[str]:
     """Add this Python as the `blade-editor` MCP server, without the `claude` command."""
-    entry = {"type": "stdio", "command": sys.executable, "args": ["-m", "blade_editor.server"], "env": {}}
+    # PYTHONUTF8: on Windows, Python then reads and prints UTF-8 everywhere (Persian text on the
+    # console gave "UnicodeEncodeError (cp1252)").
+    entry = {"type": "stdio", "command": sys.executable, "args": ["-m", "blade_editor.server"],
+             "env": {"PYTHONUTF8": "1"}}
     done = []
     for f in _config_files():
         data = {}

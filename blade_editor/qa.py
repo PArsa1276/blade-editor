@@ -64,3 +64,66 @@ def speech_segments(path: str, noise_db: float = -35.0, min_silence: float = 0.3
     if dur - t > 0.05:
         keep.append([round(max(0.0, t - pad), 3), round(dur, 3)])
     return {"duration": dur, "keep": keep, "kept_seconds": round(sum(b - a for a, b in keep), 3)}
+
+
+def snap_cuts(path: str, keep: list, window: float = 0.35, min_silence: float = 0.06, pad: float = 0.04) -> dict:
+    """Move every in/out of `keep` [[in, out], ...] to the real silence next to it.
+
+    Whisper's word times are loose (a word runs on to the start of the next one), so a cut on a
+    word time can keep the first sound of the next sentence. The boundary comes from the sound
+    itself: energy in 10 ms steps; a pause is `min_silence` s below the threshold (between the room
+    noise and the speech level). An "in" goes to just before the speech starts, an "out" to just
+    after it ends. A boundary with no pause inside `window` s goes to the quietest moment and is
+    marked in_silence=false (the cut is inside speech: look for another place)."""
+    import numpy as np
+
+    sr, hop = 16000, 160
+    y = ff.read_audio_mono(path, sr=sr)
+    if len(y) < hop * 4:
+        raise ValueError("The file has no audio to find pauses in.")
+    n = len(y) // hop
+    db = 10 * np.log10(np.maximum((y[: n * hop].reshape(n, hop) ** 2).mean(axis=1), 1e-10))
+    floor, speech = float(np.percentile(db, 10)), float(np.percentile(db, 90))
+    thr = floor + max(6.0, 0.3 * (speech - floor))
+    quiet = db < thr
+    step, need = hop / sr, max(1, int(round(min_silence * sr / hop)))
+    dur = n * step
+
+    def snap(t: float, side: str) -> dict:
+        a, b = max(0, int((t - window) / step)), min(n, int((t + window) / step) + 1)
+        runs, k = [], a
+        while k < b:
+            if quiet[k]:
+                j = k
+                while j < n and quiet[j]:
+                    j += 1
+                i = k
+                while i > 0 and quiet[i - 1]:
+                    i -= 1
+                if j - i >= need:
+                    runs.append((i * step, j * step))
+                k = j
+            else:
+                k += 1
+        if (t <= window and side == "in") or (t >= dur - window and side == "out"):
+            runs.append((0.0, 0.0) if side == "in" else (dur, dur))  # the file's own start / end
+        if runs:
+            r0, r1 = min(runs, key=lambda r: 0.0 if r[0] <= t <= r[1] else min(abs(t - r[0]), abs(t - r[1])))
+            new = max(r0, r1 - pad) if side == "in" else min(r1, r0 + pad)
+            return {"t": round(float(new), 3), "moved": round(float(new - t), 3), "in_silence": True}
+        k = a + int(np.argmin(db[a:b]))
+        return {"t": round(k * step, 3), "moved": round(k * step - t, 3), "in_silence": False,
+                "level_db": round(float(db[k]), 1)}
+
+    out, notes = [], []
+    for i, (a, b) in enumerate(keep):
+        sa, sb = snap(float(a), "in"), snap(float(b), "out")
+        if sb["t"] - sa["t"] < 0.05:
+            sa, sb = {"t": float(a), "moved": 0.0, "in_silence": False}, {"t": float(b), "moved": 0.0, "in_silence": False}
+        out.append([sa["t"], sb["t"]])
+        for side, r in (("in", sa), ("out", sb)):
+            if not r["in_silence"]:
+                notes.append(f"keep[{i}] {side} at {r['t']}s is inside speech (no pause within {window}s).")
+    return {"keep": out, "moved": [[round(o[0] - float(k[0]), 3), round(o[1] - float(k[1]), 3)] for o, k in zip(out, keep)],
+            "threshold_db": round(thr, 1), "noise_db": round(floor, 1), "speech_db": round(speech, 1),
+            "inside_speech": notes, "ok": not notes}
